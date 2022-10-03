@@ -1,0 +1,1 @@
+/home/gonzalo/nextflowtest/test2/main.nf

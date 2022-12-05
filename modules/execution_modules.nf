@@ -122,7 +122,7 @@ process LOCAL_CHECK {
 
 		if(samples && analysis.contains("C"))
 			"""
-			ls ${input} | grep "[${extension_local_check}]\$" -P | sed 's/_.*//' | sort | uniq > controlsamples.txt
+			ls ${input} | grep "[${extension_local_check}]\$" -P | sed 's/_.*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
 			
 
 			for sample in \$(cat ${samples}); do
@@ -138,7 +138,7 @@ process LOCAL_CHECK {
 
 		else if(samples) 
 			"""
-			ls ${input} | grep "[${extension_local_check}]\$" -P | sed 's/_.*//' | sort | uniq > controlsamples.txt
+			ls ${input} | grep "[${extension_local_check}]\$" -P | sed 's/_.*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
 			
 
 			for sample in \$(cat ${samples}); do
@@ -157,7 +157,7 @@ process LOCAL_CHECK {
 
 		else 
 			"""
-			ls ${input} | grep "${extension_local_check}\$" -P | sed 's/_.*//' | sed 's/\\..*//' | sort | uniq > controlsamples.txt
+			ls ${input} | grep "${extension_local_check}\$" -P | sed 's/_.*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
 
 
 			cat controlsamples.txt > samples2analyce.txt
@@ -170,8 +170,9 @@ process LOCAL_CHECK {
 
 process BS_COPY {
 
-	errorStrategy 'retry'
-	maxRetries 3
+	maxRetries 4
+	errorStrategy { task.attempt in 4 ? 'retry' : 'ignore' }
+
 
 	input:
 		val project
@@ -296,7 +297,11 @@ process FASTQTOSAM {
 
 	script:
 		def scratch_field = scratch ? "--TMP_DIR ${scratch}/${sample}_FastqToSam" : ""
+		def scratch_mkdir = scratch ? "mkdir -p ${scratch}/${sample}_FastqToSam" : ""
+
 		"""
+
+		${scratch_mkdir}
 
 		gatk FastqToSam ${scratch_field} \
 		--FASTQ ${forward} \
@@ -307,6 +312,7 @@ process FASTQTOSAM {
 		--PLATFORM illumina 
 		"""
 }
+
 
 
 
@@ -328,7 +334,12 @@ process MERGEBAMALIGNMENT {
 
 	script:
 		def scratch_field = scratch ? "--TMP_DIR ${scratch}/${sample}_MergeBamAlignment" : ""
+		def scratch_mkdir = scratch ? "mkdir -p ${scratch}/${sample}_MergeBamAlignment" : ""
+
 		"""
+
+		${scratch_mkdir}
+
 		gatk MergeBamAlignment ${scratch_field} \
 		--VALIDATION_STRINGENCY SILENT \
 		--EXPECTED_ORIENTATIONS FR \
@@ -367,7 +378,7 @@ process MARKDUPLICATESSPARK {
 
 	input:
 		tuple val(sample), path(merged_bam)
-
+		path scratch
 
 	output:
 		tuple \
@@ -379,7 +390,13 @@ process MARKDUPLICATESSPARK {
 			path("marked_dup_metrics_${sample}.txt"), emit: dedupped_txt
 
 	script:
+
+		def scratch_field = scratch ? "--conf 'spark.local.dir=${scratch}/${sample}_MarkDuplicatesSpark'" : ""
+		def scratch_mkdir = scratch ? "mkdir -p ${scratch}/${sample}_MarkDuplicatesSpark" : ""
+
 		"""
+		${scratch_mkdir}
+
 		gatk MarkDuplicatesSpark \
 		-I ${merged_bam} \
 		-O ${sample}.dedupped.sorted.bam \
@@ -387,7 +404,8 @@ process MARKDUPLICATESSPARK {
 		--remove-all-duplicates false \
 		--optical-duplicate-pixel-distance 2500 \
 		--read-validation-stringency SILENT \
-		--create-output-bam-index true
+		--create-output-bam-index true \
+		${scratch_field}
 
 		chmod 777 \$(find . -user root) 
 		"""
@@ -417,7 +435,11 @@ process SORTSAM {
 
 	script:
 		def scratch_field = scratch ? "--TMP_DIR ${scratch}/${sample}_SortSam" : ""
+		def scratch_mkdir = scratch ? "mkdir -p ${scratch}/${sample}_SortSam" : ""
 		"""
+
+		${scratch_mkdir}
+
 		gatk SortSam ${scratch_field} \
 		--INPUT ${merged_bam} \
 		--OUTPUT ${sample}.sorted.bam \
@@ -452,8 +474,13 @@ process SETTAGS {
 			path("${sample}.tag.bai"), emit: tagged_bam
 
 	script:
-		def scratch_field = scratch ? "--TMP_DIR ${scratch}/${sample}_SortSam" : ""
+		def scratch_field = scratch ? "--TMP_DIR ${scratch}/${sample}_Settags" : ""
+		def scratch_mkdir = scratch ? "mkdir -p ${scratch}/${sample}_Settags" : ""
+		
 		"""
+
+		${scratch_mkdir}
+
 		gatk  SetNmMdAndUqTags ${scratch_field} \
 		--INPUT ${sorted_bam} \
 		--OUTPUT ${sample}.tag.bam \
@@ -611,7 +638,7 @@ process LOCALBAM {
 
 
 process MOSDEPTH {
-	publishDir "${params.output}/qc/mosdepth/", mode: 'copy'
+	publishDir "${params.output}/qc/mosdepth/", mode: 'copy', pattern: "*txt"
 	errorStrategy 'ignore'
 
 	input:
@@ -630,7 +657,7 @@ process MOSDEPTH {
 }
 
 
-
+/*
 process MOSDEPTH_JOIN {
 	publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
@@ -666,7 +693,7 @@ process MOSDEPTH_JOIN {
 		"""
 }
 
-
+*/
 
 process MOSDEPTH_PLOT {
 	publishDir "${params.output}/qc/", mode: 'copy'
@@ -707,7 +734,7 @@ process MOSDEPTH_COV {
 
 	script:
 		
-		if(bed)
+/*		if(bed)
 			"""
 			mosdepth --quantize 10: -n -x ${sample}_cov ${bam}
 			zcat ${sample}_cov.quantized.bed.gz > ${sample}.global.quantized.bed
@@ -720,7 +747,7 @@ process MOSDEPTH_COV {
 			#bedtools map -a BED -b BAM -mean -sorted > MeanCoverageBED.bedgraph
 			"""
 
-		else
+		else*/
 			"""
 			mosdepth --quantize 10: -n -x ${sample}_cov ${bam}
 			zcat ${sample}_cov.quantized.bed.gz > ${sample}.global.quantized.bed
@@ -751,29 +778,25 @@ process GENOMECOV {
 		
 		if(bed)
 			"""
-			samtools view -b -F 3332 ${bam} | bedtools genomecov -bga -ibam stdin > ${sample}.genomecov.bed
+			samtools view -b -F 2304 ${bam} | bedtools genomecov -bga -ibam stdin > ${sample}.genomecov.bed
 			#bedtools intersect -a ${sample}.genomecov.bed -b ${bed} > ${sample}.panelcov.bed
 			bedtools intersect -a ${sample}.genomecov.bed -b ${bed} -wb > ${sample}.panelcov.bed
 			"""
 
 		else
 			"""
-			samtools view -b -F 3332 ${bam} | bedtools genomecov -bga -ibam stdin > ${sample}.genomecov.bed
+			samtools view -b -F 2304 ${bam} | bedtools genomecov -bga -ibam stdin > ${sample}.genomecov.bed
 			"""
 }
 // 3332
-// read unmapped (0x4)
-// not primary alignment (0x100)
-// read is PCR or optical duplicate (0x400)
-// supplementary alignment (0x800)
+// read unmapped (0x4)4
+// not primary alignment (0x100) 256
+// read is PCR or optical duplicate (0x400) 1024
+// supplementary alignment (0x800) 2048
 
-// 3076
-// read unmapped (0x4)
-// read is PCR or optical duplicate (0x400)
-// supplementary alignment (0x800)
-
-
-
+// 2304
+// not primary alignment (0x100) 256
+// supplementary alignment (0x800) 2048
 
 
 process SAMTOOLS_FLAGSTAT {
@@ -816,7 +839,7 @@ process READ_LENGTH_STATS {
 	script:
 
 		"""
-		samtools view -F 3332 ${bam} | cut -f 10 | perl -ne 'chomp;print length(\$_) . "\\n"' > ${sample}.read_lenghts.txt
+		samtools view -F 2304 ${bam} | cut -f 10 | perl -ne 'chomp;print length(\$_) . "\\n"' > ${sample}.read_lenghts.txt
 		"""
 }
 
@@ -837,7 +860,7 @@ process SEQUENCING_QUALITY_SCORES {
 	script:
 
 		"""
-		samtools view -F 3332 ${bam} | cut -f 11 | grep -o . | awk '{c[\$0]++}END{for(l in c){print c[l], l}}' | sort -n > ${sample}.quality.txt
+		samtools view -F 2304 ${bam} | cut -f 11 | grep -o . | awk '{c[\$0]++}END{for(l in c){print c[l], l}}' | sort -n > ${sample}.quality.txt
 		"""
 }
 
@@ -858,7 +881,7 @@ process SEQUENCING_CG_AT_CONTENT {
 	script:
 
 		"""
-		samtools view -F 3332 ${bam} | cut -f 10 | grep -o . | awk '{c[\$0]++}END{for(l in c){print c[l], l}}' | sort -n > ${sample}.CG_AT.txt
+		samtools view -F 2304 ${bam} | cut -f 10 | grep -o . | awk '{c[\$0]++}END{for(l in c){print c[l], l}}' | sort -n > ${sample}.CG_AT.txt
 		"""
 }
 
@@ -1638,6 +1661,7 @@ process BEDPROCCESING {
 		val min_target 
 		val window
 		val chrx
+		path fai
 
 
 	output:
@@ -1664,7 +1688,7 @@ process BEDPROCCESING {
 		else if ( window )
 			"""
 			panel="\$(basename ${bed} .bed)"
-			awk '{if((\$3-\$2)>${min_target} && \$1!="chrX" && \$1!="chrY" && \$1!="Y" && \$1!="X"){print \$0}}' ${bed} | sort -V -k1,1 -k2,2 > \${panel}.min${min_target}bp.cnv.bed
+			awk '{if((\$3-\$2)>${min_target} && \$1!="MT" && \$1!="chrMT" && \$1!="chrX" && \$1!="chrY" && \$1!="Y" && \$1!="X"){print \$0}}' ${bed} | sort -V -k1,1 -k2,2 > \${panel}.min${min_target}bp.cnv.bed
 
 			python $tasksPath/CNV_windowSize.py \${panel}.min${min_target}bp.cnv.bed \${panel}.min${min_target}bp.cnv.bed_unsorted
 			sort -V -k1,1 -k2,2 \${panel}.min${min_target}bp.cnv.bed_unsorted | uniq > \${panel}.window125bp.min${min_target}bp.cnv.bed
@@ -1675,7 +1699,7 @@ process BEDPROCCESING {
 		else
 			"""
 			panel="\$(basename ${bed} .bed)"
-			awk '{if((\$3-\$2)>${min_target} && \$1!="chrX" && \$1!="chrY" && \$1!="Y" && \$1!="X"){print \$0}}' ${bed} | sort -V -k1,1 -k2,2 > \${panel}.min${min_target}bp.cnv.bed
+			awk '{if((\$3-\$2)>${min_target} && \$1!="MT" && \$1!="chrMT" && \$1!="chrX" && \$1!="chrY" && \$1!="Y" && \$1!="X"){print \$0}}' ${bed} | bedtools sort -g ${fai} -i stdin > \${panel}.min${min_target}bp.cnv.bed
 			"""
 }
 
@@ -1704,7 +1728,7 @@ process EXOMEDEPTH {
 
 		tuple \
 			val(runname), \
-			path("exomedepth.toAnnotate.txt"), emit: toannotate
+			path("exomedepth.toAnnotate.txt"), emit: toannotate, optional: true
 	
 	script:
 		if ( task.attempt == 1 )
@@ -1745,7 +1769,7 @@ process CONVADING {
 
 		tuple \
 			val(runname), \
-			path("CoNVaDING.toAnnotate.txt"), emit: toannotate
+			path("CoNVaDING.toAnnotate.txt"), emit: toannotate, optional: true
 	
 	script:
 		if ( task.attempt == 1 )
@@ -1781,7 +1805,7 @@ process PANELCNMOPS {
 		
 		tuple \
 			val(runname), \
-			path("panelcn.MOPS.toAnnotate.txt"), emit: toannotate
+			path("panelcn.MOPS.toAnnotate.txt"), emit: toannotate, optional: true
 	
 	script:
 		if ( task.attempt == 1 )
@@ -1881,8 +1905,7 @@ process PAM {
 		tuple val(runname), path(colnames)
 		path genefilter 
 		path glowgenes
-		path annotsv_path
-
+		path tasks
 
 	output:
 		tuple \
@@ -2149,4 +2172,89 @@ process VARIANT_ANNOTATOR {
 		-ped ${ped} 
 		"""
 }
+
+
+
+
+
+process MANTA {	
+
+	publishDir "${params.output}/cnvs", mode: 'copy'
+
+	input:
+		path("")
+		path("")
+		path ref
+		path index
+		path gzi
+		val runname
+		
+	output:
+		tuple \
+			val(runname), \
+			path("results/variants/diploidSV.vcf.gz"), 
+			path("results/variants/diploidSV.vcf.gz.tbi"),emit: diploidsv
+
+		tuple \
+			val(runname), \
+			path("results/variants/candidateSV.vcf.gz"), 
+			path("results/variants/candidateSV.vcf.gz.tbi"),emit: candidatesv
+
+		tuple \
+			val(runname), \
+			path("results/variants/candidateSmallIndels.vcf.gz"), 
+			path("results/variants/candidateSmallIndels.vcf.gz.tbi"),emit: candidatesmallindels
+
+	script:
+		"""
+
+		all_bams=""
+		var="--bam"
+		for i in *bam; do all_bams=`echo \${var} \${i} \${all_bams}`; done
+
+
+		configManta.py \${all_bams} --referenceFasta ${ref} --runDir ./
+		
+		./runWorkflow.py -j 12
+
+		"""
+}
+
+
+
+
+process ANNOTSV_VCF {
+
+	publishDir "${params.output}/cnvs", mode: 'copy'
+	
+	input:
+		tuple val(runname), path(diploidsv_vcf), path(diploidsv_index)
+		val annotsv_assembly
+		path annotsv_path
+
+
+	output:
+		tuple \
+			val(runname), \
+			path("${runname}.CNV.annotated.tsv"), emit: annotated_cnv 
+	
+	script:
+
+		"""
+		export ANNOTSV=${annotsv_path}
+
+		${annotsv_path}/bin/AnnotSV \
+		-SVinputFile ${diploidsv_vcf} \
+		-outputFile ${runname}.CNV.annotated.tsv \
+		-annotationMode both \
+		-genomeBuild ${annotsv_assembly} \
+		-SVminSize 20 
+		
+		mv *_AnnotSV/${runname}.CNV.annotated.tsv .
+		"""
+}
+
+
+
+
 

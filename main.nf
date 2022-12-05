@@ -34,7 +34,8 @@ include { SORTSAM } from './modules/execution_modules'
 include { SETTAGS } from './modules/execution_modules'
 include { BASERECALIBRATOR } from './modules/execution_modules'
 include { APPLYBQSR } from './modules/execution_modules'
-include { LOCALBAM } from './modules/execution_modules'
+include { LOCALBAM as LOCALBAM } from './modules/execution_modules'
+include { LOCALBAM as LOCALBAM_CNV } from './modules/execution_modules'
 
 include { HAPLOTYPECALLER } from './modules/execution_modules'
 include { SELECT_SNV } from './modules/execution_modules'
@@ -60,8 +61,8 @@ include { VEP } from './modules/execution_modules'
 include { PVM } from './modules/execution_modules'
 
 include { MOSDEPTH } from './modules/execution_modules'
-include { MOSDEPTH_JOIN as MOSDEPTH_JOIN_SNV } from './modules/execution_modules'
-include { MOSDEPTH_JOIN as MOSDEPTH_JOIN_CNV } from './modules/execution_modules'
+//include { MOSDEPTH_JOIN as MOSDEPTH_JOIN_SNV } from './modules/execution_modules'
+//include { MOSDEPTH_JOIN as MOSDEPTH_JOIN_CNV } from './modules/execution_modules'
 include { MOSDEPTH_PLOT } from './modules/execution_modules'
 include { MOSDEPTH_COV } from './modules/execution_modules'
 include { GENOMECOV } from './modules/execution_modules'
@@ -80,6 +81,9 @@ include { PANELCNMOPS } from './modules/execution_modules'
 include { CNV_RESULT_MIXER } from './modules/execution_modules'
 include { ANNOTSV } from './modules/execution_modules'
 include { PAM } from './modules/execution_modules'
+
+include { MANTA } from './modules/execution_modules'
+include { ANNOTSV_VCF } from './modules/execution_modules'
 
 
 // def final_vcf  = Channel.fromPath(params.final_vcf)
@@ -303,7 +307,8 @@ workflow MAPPING {
 		if ( !params.ignoreduplicates ) {
 			
 			MARKDUPLICATESSPARK (
-				MERGEBAMALIGNMENT.out.merged_bam )
+				MERGEBAMALIGNMENT.out.merged_bam,
+				params.scratch )
 
 			sorted_bam = MARKDUPLICATESSPARK.out.deduppedsorted_bam
 
@@ -536,7 +541,8 @@ workflow CNVCALLING {
 			params.bed,
 			params.min_target,
 			params.window,
-			params.cnv_chrx )
+			params.cnv_chrx,
+			params.fai_convading )
 
 
 		// CNV calling
@@ -822,7 +828,30 @@ workflow QUALITYCHECK {
 
 
 
+workflow CNVCALLING_WGS {
+	take:
+		bam
+		bai
+		runname
+	
+	main:
 
+		MANTA (
+			bam,
+			bai,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_gzi,
+			runname )
+
+		ANNOTSV_VCF (
+			MANTA.out.diploidsv,
+			params.annotsv_assembly,
+			params.annotsv_path )
+
+	// emit:
+
+}
 
 
 
@@ -854,16 +883,33 @@ workflow {
 	if ( params.analysis.toUpperCase().contains("M") ) {
 		
 		MAPPING( CHECK_PARAMS.out.controlsamples )
-	} 
-
-
+		
+		bam = MAPPING.out.bam
 	
+	}  
+
+
+	if ( params.analysis.toUpperCase() =~ /[QSGCX]/ ){
+		
+		if ( params.analysis.toUpperCase().contains("M") ) {
+					
+			bam = MAPPING.out.bam
+	
+		} else {
+			
+			LOCALBAM (
+				params.input,
+				CHECK_PARAMS.out.samples2analyce )
+	
+			bam = LOCALBAM.out.bam
+		}
+	}
 
 
 	// Quality check
 	if ( params.analysis.toUpperCase().contains("Q") ) {
 		
-		if ( params.analysis.toUpperCase().contains("M") ) {
+/*		if ( params.analysis.toUpperCase().contains("M") ) {
 				
 			bam = MAPPING.out.bam
 
@@ -874,7 +920,7 @@ workflow {
 				CHECK_PARAMS.out.samples2analyce )
 
 			bam = LOCALBAM.out.bam
-		}
+		}*/
 
 		QUALITYCHECK(
 			bam,
@@ -888,7 +934,7 @@ workflow {
 
 	// SNV calling
 	if ( params.analysis.toUpperCase().contains("S") ) {
-		if ( params.analysis.toUpperCase().contains("M") ) {
+/*		if ( params.analysis.toUpperCase().contains("M") ) {
 			
 			bam = MAPPING.out.bam
 
@@ -899,7 +945,7 @@ workflow {
 				CHECK_PARAMS.out.samples2analyce )
 
 			bam = LOCALBAM.out.bam
-		}
+		}*/
 
 
 		// SNV calling
@@ -911,7 +957,7 @@ workflow {
 
 	// SNV calling GVCF mode
 	if ( params.analysis.toUpperCase().contains("G") ) {
-		if ( params.analysis.toUpperCase().contains("M") ) {
+/*		if ( params.analysis.toUpperCase().contains("M") ) {
 			
 			bam = MAPPING.out.bam
 
@@ -922,7 +968,7 @@ workflow {
 				CHECK_PARAMS.out.samples2analyce )
 
 			bam = LOCALBAM.out.bam
-		}
+		}*/
 
 
 		// SNV calling
@@ -963,27 +1009,41 @@ workflow {
 	if ( params.analysis.toUpperCase().contains("C") ) {
 		if ( params.analysis.toUpperCase().contains("M") ) {
 			
-			bam = MAPPING.out.bam.collect().flatten().filter( ~/.*bam$/ ).toList()
-			bai = MAPPING.out.bam.collect().flatten().filter( ~/.*bai$/ ).toList()
-			quality_bam = MAPPING.out.bam
+			bam_collecteted = MAPPING.out.bam.collect().flatten().filter( ~/.*bam$/ ).toList()
+			bai_collecteted = MAPPING.out.bam.collect().flatten().filter( ~/.*bai$/ ).toList()
 
 		} else {
 
-			LOCALBAM (
+			LOCALBAM_CNV (
 				params.input,
 				CHECK_PARAMS.out.controlsamples )
-			bam = LOCALBAM.out.bam.collect().flatten().filter( ~/.*bam$/ ).toList()
-			bai = LOCALBAM.out.bam.collect().flatten().filter( ~/.*bai$/ ).toList()
+			
+			bam_collecteted = LOCALBAM_CNV.out.bam.collect().flatten().filter( ~/.*bam$/ ).toList()
+			bai_collecteted = LOCALBAM_CNV.out.bam.collect().flatten().filter( ~/.*bai$/ ).toList()
 
 		}
 
 
-		// CNV calling and annotation
-		CNVCALLING ( 
-			bam,
-			bai, 
-			CHECK_PARAMS.out.runname,
-			CHECK_PARAMS.out.samples2analyce_file )
+		if ( params.capture.toUpperCase() == "P" ) {
+
+			// CNV calling and annotation
+			CNVCALLING ( 
+				bam_collecteted,
+				bai_collecteted, 
+				CHECK_PARAMS.out.runname,
+				CHECK_PARAMS.out.samples2analyce_file )
+		}
+
+		if ( params.capture.toUpperCase() == "G" ) {
+
+			// CNV calling and annotation
+			CNVCALLING_WGS ( 
+				bam_collecteted,
+				bai_collecteted, 
+				CHECK_PARAMS.out.runname )
+		}
+
+
 	}
 
 

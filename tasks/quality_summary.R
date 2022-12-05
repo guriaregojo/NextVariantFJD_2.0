@@ -40,17 +40,19 @@ output = opt$output
 nreads_nondup_uniq = opt$nreads_nondup_uniq
 bedout = opt$bedout
 
-# 
+# # 
 # sample="22-0087-CES178"
-# genomecov_path="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/CES178-21-01-2022/bams/22-0087-CES178.genomecov.bed"
-# quality_path="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/CES178-21-01-2022/bams/22-0087-CES178.quality.txt"
-# samtools_flagstat_path="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/CES178-21-01-2022/bams/22-0087-CES178.samtools_flagstat.txt"
-# read_lenghts_path="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/CES178-21-01-2022/bams/22-0087-CES178.read_lenghts.txt"
-# cg_at_path="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/CES178-21-01-2022/bams/22-0087-CES178.CG_AT.txt"
-# # n50_n90_path="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/CES178-21-01-2022/bams/22-0087-CES178.N50_N90.txt"
-# panelcov_path="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/CES178-21-01-2022/bams/22-0087-CES178.panelcov.bed"
-# bed_path="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/sophia_clinical_exome_ces_annotated.bed"
-# output="/home/gonzalo/tblab/mnt/genetica4/gonzalo/iMartin070222_CES178/CES178-21-01-2022/bams/22-0087-CES178.quality.summary.txt"
+# genomecov_path="/home/gonzalo/tblab//mnt/tblab/gonzalo/reanalysis/aAvila111122/work/c3/14488ff6c9220181a85dd7437a0356/22-1698.genomecov.bed"
+# quality_path="/home/gonzalo/tblab/mnt/tblab/gonzalo/reanalysis/aAvila111122/work/88/858f07b9091e8a112b4798d40cd6ad/22-1698.quality.txt"
+# samtools_flagstat_path="/home/gonzalo/tblab//mnt/tblab/gonzalo/reanalysis/aAvila111122/work/c9/15ae3d5149e86e4c1ccfb6d584f02c/22-1698.samtools_flagstat.txt"
+# read_lenghts_path="/home/gonzalo/tblab//mnt/tblab/gonzalo/reanalysis/aAvila111122/work/c6/e3511ec10c91c341cd7d7e2c0a27d9/22-1698.read_lenghts.txt"
+# cg_at_path="/home/gonzalo/tblab//mnt/tblab/gonzalo/reanalysis/aAvila111122/work/27/b09da2712fc6ac1cd590c5c4a0de75/22-1698.CG_AT.txt"
+# # n50_n90_path="/home/gonzalo/tblab/"
+# panelcov_path="/home/gonzalo/tblab//mnt/tblab/gonzalo/reanalysis/aAvila111122/work/c3/14488ff6c9220181a85dd7437a0356/22-1698.panelcov.bed"
+# bed_path="/home/gonzalo/tblab//mnt/genetica7/beds/CES_v3_hg38_target.chr.formatted.sorted.annotated.bed"
+# output="/home/gonzalo/tblab/Downloads/22-1698.quality.summary.txt"
+# nreads_nondup_uniq="/home/gonzalo/tblab//mnt/tblab/gonzalo/reanalysis/aAvila111122/work/22/db6cbcc2a26d6fa102dcb1f57e6a84/22-1698.nreads_nondup_uniq.txt"
+# bedout="/home/gonzalo/Downloads/22-1698.library.stats.txt"
 
 
 ################
@@ -89,8 +91,8 @@ save.image(file = "Rdata.RData")
 # Basic Information #
 #####################
 df_out$Sample = sample
-df_out$Total_read_bases = sum(quality$V1)
-df_out$Total_read_number = samtools_flagstat$in_total
+df_out$Raw_total_read_bases = sum(quality$V1)
+df_out$Raw_total_read_number = samtools_flagstat$primary
 
 
 
@@ -136,9 +138,11 @@ df_out$N90 = n50_n90_calculator(sum(length_distribution_mod)/10)
 
 # Mapping stats
 df_out$mapped_reads = samtools_flagstat$mapped
-df_out$`mapping_ratio(%)` = samtools_flagstat$mapped / df_out$Total_read_number * 100
+df_out$`mapping_ratio(%)` = samtools_flagstat$mapped / samtools_flagstat$in_total * 100
+df_out$primary_mapped_reads = samtools_flagstat$primary_mapped
+df_out$`primary_mapping_ratio(%)` = samtools_flagstat$primary_mapped / samtools_flagstat$primary * 100
 df_out$uniquemapped_nondup_reads = nreads_nondup_uniq
-df_out$`uniquemapped_nondup_ratio(%)` = as.numeric(nreads_nondup_uniq) / df_out$Total_read_number * 100
+df_out$`uniquemapped_nondup_ratio(%)` = as.numeric(nreads_nondup_uniq) / samtools_flagstat$primary * 100
 
 df_out$secondary_reads = samtools_flagstat$secondary
 df_out$supplementary_reads = samtools_flagstat$supplementary

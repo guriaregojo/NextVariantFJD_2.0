@@ -38,8 +38,8 @@ opt=parse_args(opt_parser) #list of the args
 
 # 
 # opt=list()
-# opt$input <- "/home/gonzalo/tblab/mnt/genetica6/reanotacion_cnvs/WES_Philly_2annotate.bed"
-# opt$outputfile <- "/home/gonzalo/tblab/mnt/genetica6/reanotacion_cnvs/WES_Philly_2annotate.bed.CNV.annotated.final.tsv"
+# opt$input <- "/home/gonzalo/tblab/mnt/tblab/gonzalo/reanalysis/cAyuso081022/work/8b/1f5b0435729e881c147fa38e758bbe/2022-10-27_16-45.CNV.annotated.tsv"
+# opt$outputfile <- "/home/gonzalo/tblab/mnt/tblab/gonzalo/reanalysis/cAyuso081022/results2/cnvs/"
 # opt$extracolnames <- "/home/gonzalo/tblab/mnt/genetica6/reanotacion_cnvs/colnames_extra.txt"
 
 
@@ -65,6 +65,7 @@ extracolnames_tsv = read.delim(extracolnames, header = F, stringsAsFactors = F, 
 #=================#
 extracolnames_positions = which(colnames(annotated_tsv) %in% extracolnames_tsv$V1)
 first_cols  = match(c("ACMG_class", "Samples_ID", "SV_chrom", "SV_start", "SV_end", "SV_length", "SV_type", "N_PROGRAMS"),colnames(annotated_tsv))
+first_cols$ACMG_class = gsub("full=", "", first_cols$ACMG_class)
 
 new_order = c(first_cols, (max(extracolnames_positions)+1):(ncol(annotated_tsv)-1), extracolnames_positions)
 
@@ -109,4 +110,4 @@ library(openxlsx)
 write.xlsx(annotated_tsv_ordered, paste0(outputfile, ".xlsx"), colNames = TRUE)
 
 
-
+print("Finish")

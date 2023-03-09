@@ -28,9 +28,9 @@ opt=parse_args(opt_parser) #list of the args
 
 
 # opt=list()
-# opt$inputdir <- "/home/gonzalo/tblab/mnt/genetica4/gonzalo/pruebas_merge_cnvs/cnvs/"
-# opt$outputfile <- "/home/gonzalo/tblab/mnt/genetica4/gonzalo/pruebas_merge_cnvs/cnvs/PRUEBA.CNV.merged.bed"
-# opt$samples <- NULL
+# opt$inputdir <- "/home/gonzalo/Documents/prueba_merge_cnv_tmp"
+# opt$outputfile <- "/home/gonzalo/Documents/prueba_merge_cnv_tmp/PRUEBA.CNV.merged.bed"
+# opt$samples <- "/home/gonzalo/Documents/prueba_merge_cnv_tmp/samples2analyce.txt"
 
 # opt=list()
 # opt$inputdir <- "/home/gonzalo/tblab/mnt/genetica4/gonzalo/pruebas_merge_cnvs/work/49/7e9f779328cc16dff25a77f2a1c9e8/"
@@ -60,6 +60,7 @@ for (toAnnotate_file in toAnnotate_files) {
   toAnnotate_df = read.delim(toAnnotate_file, header = T, stringsAsFactors = F, quote = "")
   cnv_program = gsub(".toAnnotate.txt","",toAnnotate_file)
   programs = c(programs,cnv_program)
+  # Add "chr" prefix if it is not present
   toAnnotate_df[grep("chr", toAnnotate_df[,1],invert = T), 1] = paste0("chr", toAnnotate_df[grep("chr", toAnnotate_df[,1],invert = T),1])
   if (ncol(toAnnotate_df) == 5) { 
     colnames(toAnnotate_df) = c("CHR", "START", "END", "CNV_TYPE", "SAMPLE")
@@ -98,6 +99,7 @@ rownames(extra_info_df) = extra_info_df$cnv_id
 
 if (!is.null(samplesfilt)){
   samplesfilt_df = read.delim(samplesfilt, stringsAsFactors = F, header = F, quote = "")
+  samplesfilt_df$V1 = gsub("_.*", "", samplesfilt_df$V1)
   all_progrmas_df = all_progrmas_df[all_progrmas_df$SAMPLE %in% samplesfilt_df$V1,]
 }
 

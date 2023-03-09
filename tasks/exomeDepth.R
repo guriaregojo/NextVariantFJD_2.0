@@ -257,6 +257,7 @@ for (i in 1:nsamples) {
 
 toAnnotateTable = CNVcalls_sorted_total[,c("chromosome","start","end","CNV_type","samplename", "BF", "reads.ratio"), drop=F]
 colnames(toAnnotateTable) = c("CHR", "START", "END", "CNV_TYPE", "SAMPLE","BF", "RATIO")
+toAnnotateTable$SAMPLE = gsub("_.*", "", toAnnotateTable$SAMPLE)
 toAnnotateTable$CHR[grep("chr", toAnnotateTable$CHR,invert = T)] = paste0("chr", toAnnotateTable$CHR[grep("chr", toAnnotateTable$CHR,invert = T)])
 
 colnames(corDF) = c("sample", "cor")

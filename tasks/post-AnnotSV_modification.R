@@ -65,7 +65,7 @@ extracolnames_tsv = read.delim(extracolnames, header = F, stringsAsFactors = F, 
 #=================#
 extracolnames_positions = which(colnames(annotated_tsv) %in% extracolnames_tsv$V1)
 first_cols  = match(c("ACMG_class", "Samples_ID", "SV_chrom", "SV_start", "SV_end", "SV_length", "SV_type", "N_PROGRAMS"),colnames(annotated_tsv))
-first_cols$ACMG_class = gsub("full=", "", first_cols$ACMG_class)
+annotated_tsv$ACMG_class = gsub("full=", "", annotated_tsv$ACMG_class)
 
 new_order = c(first_cols, (max(extracolnames_positions)+1):(ncol(annotated_tsv)-1), extracolnames_positions)
 
@@ -87,11 +87,11 @@ if ((!is.null(genefilter_path)) & (!is.null(glowgenes_path))){
   glowgenes = rbind(genefilter, glowgenes)
   rownames(glowgenes) = glowgenes$SYMBOL
   
-  GLOWgenes = data.frame(row.names = 1:nrow(annotated_tsv))
+  GLOWgenes = data.frame(row.names = 1:nrow(annotated_tsv_ordered))
   
   for(i in nrow(glowgenes):1){
     aa = glowgenes[i,]
-    GLOWgenes[grep(aa$SYMBOL, annotated_tsv$Gene_name),1] = aa$GLOWgenes
+    GLOWgenes[grep(aa$SYMBOL, annotated_tsv_ordered$Gene_name),1] = aa$GLOWgenes
   }
   
   annotated_tsv_ordered = cbind(GLOWgenes, annotated_tsv_ordered)

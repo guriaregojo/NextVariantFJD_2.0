@@ -1017,8 +1017,8 @@ process HAPLOTYPECALLER {
 		"""
 		${scratch_mkdir}
 
-		gatk HaplotypeCaller ${scratch_field} \
-		--java-options "-Xmx${params.bigmem}g" \
+		gatk --java-options "-Xmx${params.bigmem}g" \
+		HaplotypeCaller ${scratch_field} \
 		-R ${ref} \
 		-I ${bam} \
 		-O ${sample}.vcf \
@@ -1147,12 +1147,13 @@ process FILTRATION_SNV {
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.filtered.snv.vcf"), \
-			path("${sample}.filtered.snv.vcf.idx"), emit: vcf
+			path("${sample}.filtered.sorted.snv.vcf"), \
+			path("${sample}.filtered.sorted.snv.vcf.idx"), emit: vcf
 
 	script:
 		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_filtersnvs" : ""	
 		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_filtersnvs" : ""
+		def scratch_field2   = scratch ? "--TMP_DIR ${scratch}/${sample}_filtersnvs" : ""	
 
 		"""
 		${scratch_mkdir}
@@ -1167,6 +1168,11 @@ process FILTRATION_SNV {
 		-filter "MQRankSum < -12.5" --filter-name "MQRankSum-12.5" \
 		-filter "ReadPosRankSum < -8.0" --filter-name "ReadPosRankSum-8" \
 		-O ${sample}.filtered.snv.vcf
+
+		gatk SortVcf ${scratch_field2} \
+		-I ${sample}.filtered.snv.vcf \
+		-O ${sample}.filtered.sorted.snv.vcf
+
 		"""
 }
 
@@ -1185,12 +1191,13 @@ process FILTRATION_INDEL {
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.filtered.indel.vcf"), \
-			path("${sample}.filtered.indel.vcf.idx"), emit: vcf
+			path("${sample}.filtered.sorted.indel.vcf"), \
+			path("${sample}.filtered.sorted.indel.vcf.idx"), emit: vcf
 
 	script:
 		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_filterindel" : ""	
 		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_filterindel" : ""
+		def scratch_field2   = scratch ? "--TMP_DIR ${scratch}/${sample}_filterindel" : ""	
 
 		"""
 		${scratch_mkdir}
@@ -1202,6 +1209,11 @@ process FILTRATION_INDEL {
 		-filter "FS > 200.0" --filter-name "FS200" \
 		-filter "ReadPosRankSum < -20.0" --filter-name "ReadPosRankSum-20" \
 		-O ${sample}.filtered.indel.vcf
+
+		gatk SortVcf ${scratch_field2} \
+		-I ${sample}.filtered.indel.vcf \
+		-O ${sample}.filtered.sorted.indel.vcf
+
 		"""
 }
 
@@ -1221,12 +1233,13 @@ process FILTRATION_MIX {
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.filtered.mix.vcf"), \
-			path("${sample}.filtered.mix.vcf.idx"), emit: vcf
+			path("${sample}.filtered.sorted.mix.vcf"), \
+			path("${sample}.filtered.sorted.mix.vcf.idx"), emit: vcf
 
 	script:
 		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_filtermix" : ""	
 		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_filtermix" : ""
+		def scratch_field2   = scratch ? "--TMP_DIR ${scratch}/${sample}_filtermix" : ""	
 
 		"""
 		${scratch_mkdir}
@@ -1235,7 +1248,12 @@ process FILTRATION_MIX {
 		-V ${vcf} \
 		-filter "QD < 2.0" --filter-name "QD2" \
 		-filter "QUAL < 30.0" --filter-name "QUAL30" \
-		-O ${sample}.filtered.mix.vcf
+		-O ${sample}.filtered.mix.vcf 
+		
+		gatk SortVcf ${scratch_field2} \
+		-I ${sample}.filtered.mix.vcf \
+		-O ${sample}.filtered.sorted.mix.vcf
+		
 		"""
 }
 
@@ -1246,7 +1264,7 @@ process FILTRATION_MIX {
 
 process MERGE_VCF {	
 	
-	publishDir "${params.output}/snvs", mode: 'copy'
+	//publishDir "${params.output}/snvs", mode: 'copy'
 	input:
 		tuple val(sample), path(vcf_snv), path(idx_snv), path(vcf_indel), path(idx_indel), path(vcf_mix), path(idx_mix)
 		path ref
@@ -1288,18 +1306,243 @@ process FILTER_VCF {
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.final.vcf"), emit: vcf
+			path("${sample}.final.gatk.vcf"), emit: vcf
 
 	script:
 
 		"""
 		filter_vep \
-		-i ${vcf_snv} -o ${sample}.final.vcf \
-		--filter "(FILTER = PASS) and (DP > 10) and \
+		-i ${vcf_snv} -o ${sample}.final.gatk.vcf \
+		--filter "(FILTER = PASS) and \
 		(CHROM in chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY)" \
 		--force_overwrite
 		"""
 }
+
+
+
+
+
+
+
+
+
+
+
+process DEEPVARIANT {	
+	// publishDir "${params.output}/", mode: 'copy'
+
+	input:
+		tuple val(sample), path(bam), path(bai)
+		path bed
+		val intervals
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		val capture
+		path scratch
+
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.deepvariantLabeled.vcf.gz"), \
+			path("${sample}.deepvariantLabeled.vcf.gz.tbi"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.deepvariantLabeled.gvcf.gz"), \
+			path("${sample}.deepvariantLabeled.gvcf.gz.tbi"), emit: gvcf
+
+	script:
+		def capture_field   = capture != "G" ? "WES" : "WGS"
+		def intervals_field = intervals ? "--regions ${bed}" : ""
+		def scratch_field   = scratch ? "--intermediate_results_dir ${scratch}/${sample}_deepvariant" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_deepvariant" : ""
+
+		"""
+		${scratch_mkdir}
+
+		run_deepvariant ${scratch_field} \
+		--model_type=${capture_field} \
+		--ref=${ref} \
+		--reads=${bam} \
+		--output_vcf=${sample}.deepvariantLabeled.vcf.gz \
+		--output_gvcf=${sample}.deepvariantLabeled.gvcf.gz \
+		--num_shards=\$(nproc) \
+		${intervals_field} \
+		"""
+}
+
+
+
+
+process FILTER_VCF_DEEPVARIANT {	
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(vcf_snv), path(idx_snv)
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.final.deepvariant.vcf"), emit: vcf
+
+	script:
+
+		"""
+
+
+		filter_vep \
+		-i ${vcf_snv} -o ${sample}.final.deepvariant.vcf \
+		--filter "(FILTER = PASS) and \
+		(CHROM in chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY)" \
+		--force_overwrite
+		"""
+}
+
+
+
+
+
+process STR_MODEL_DRAGEN {	
+	// publishDir "${params.output}/", mode: 'copy'
+
+	input:
+		tuple val(sample), path(bam), path(bai)
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		path reference_str
+		path scratch
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}_dragstr_model.txt"), emit: strmodel
+
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_strmodeldragen" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_strmodeldragen" : ""
+
+		"""
+		${scratch_mkdir}
+
+		gatk CalibrateDragstrModel ${scratch_field} \
+    	-R ${ref} \
+    	-I ${bam} \
+    	-str ${reference_str} \
+    	-O ${sample}_dragstr_model.txt
+
+		"""
+}
+
+
+
+process HAPLOTYPECALLER_DRAGEN {	
+	// publishDir "${params.output}/", mode: 'copy'
+
+	input:
+		tuple val(sample), path(bam), path(bai), path(str)
+		path bed
+		val intervals
+		val padding
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		path scratch
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.vcf"), \
+			path("${sample}.vcf.idx"), emit: vcf
+
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_HaplotypeCallerDragen" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_HaplotypeCallerDragen" : ""
+		def intervals_field = intervals ? "-L ${bed} -ip ${padding}" : ""
+
+		"""
+		${scratch_mkdir}
+
+		gatk --java-options "-Xmx${params.bigmem}g" \
+		HaplotypeCaller ${scratch_field} \
+		--dragen-mode \
+		--dragstr-params-path ${str} \
+		-R ${ref} \
+		-I ${bam} \
+		-O ${sample}.vcf \
+		--annotate-with-num-discovered-alleles true \
+		${intervals_field}
+		"""
+}
+
+
+
+process FILTRATION_DRAGEN {	
+
+	input:
+		tuple val(sample), path(vcf), path(idx)
+		path scratch
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.dragenLabeled.vcf"), \
+			path("${sample}.dragenLabeled.vcf.idx"), emit: vcf
+
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_filterdragen" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_filterdragen" : ""
+
+		"""
+		${scratch_mkdir}
+
+		gatk VariantFiltration ${scratch_field} \
+		-V ${vcf} \
+		--filter-expression "QUAL < 10.4139" \
+      	--filter-name "DRAGENHardQUAL" \
+		-O ${sample}.dragenLabeled.vcf
+		"""
+}
+
+
+
+process FILTER_VCF_DRAGEN {	
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(vcf_snv), path(idx_snv)
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.final.dragen.vcf"), emit: vcf
+
+	script:
+
+		"""
+		filter_vep \
+		-i ${vcf_snv} -o ${sample}.final.dragen.vcf \
+		--filter "(FILTER = PASS) and \
+		(CHROM in chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY)" \
+		--force_overwrite
+		"""
+}
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1765,12 +2008,12 @@ process CONVADING {
 	output:
 		tuple \
 			val(runname), \
-			path("CoNVaDING*"), emit: cnvs 
+			path("CoNVaDING*"), emit: toannotate 
 
-		tuple \
+/*		tuple \
 			val(runname), \
 			path("CoNVaDING.toAnnotate.txt"), emit: toannotate, optional: true
-	
+*/	
 	script:
 		if ( task.attempt == 1 )
 			"""
@@ -1827,7 +2070,7 @@ process CNV_RESULT_MIXER {
 	publishDir "${params.output}/cnvs", mode: 'copy'
 	
 	input:
-		tuple val(runname), path("exomedepth.toAnnotate.txt"), path("CoNVaDING.toAnnotate.txt"), path("panelcn.MOPS.toAnnotate.txt")
+		tuple val(runname), path(""), path(""), path("")
 		path tasks
 		path samples2analyce
 
@@ -1972,8 +2215,8 @@ process GVCF_HAPLOTYPECALLER {
 		"""
 		${scratch_mkdir}
 
-		gatk HaplotypeCaller ${scratch_field} \
-		--java-options "-Xmx${params.bigmem}g" \
+		gatk --java-options "-Xmx${params.bigmem}g" \
+		HaplotypeCaller ${scratch_field} \
 		-R ${ref} \
 		-I ${bam} \
 		-ERC GVCF \

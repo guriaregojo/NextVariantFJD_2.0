@@ -46,6 +46,12 @@ include { FILTRATION_INDEL } from './modules/execution_modules'
 include { FILTRATION_MIX } from './modules/execution_modules'
 include { MERGE_VCF } from './modules/execution_modules'
 include { FILTER_VCF } from './modules/execution_modules'
+include { DEEPVARIANT } from './modules/execution_modules'
+include { FILTER_VCF_DEEPVARIANT } from './modules/execution_modules'
+include { STR_MODEL_DRAGEN } from './modules/execution_modules'
+include { HAPLOTYPECALLER_DRAGEN } from './modules/execution_modules'
+include { FILTRATION_DRAGEN } from './modules/execution_modules'
+include { FILTER_VCF_DRAGEN } from './modules/execution_modules'
 
 include { GVCF_HAPLOTYPECALLER } from './modules/execution_modules'
 include { COMBINE_GVCF } from './modules/execution_modules'
@@ -427,6 +433,54 @@ workflow SNVCALLING {
 
 		FILTER_VCF (
 			MERGE_VCF.out.vcf )
+
+		
+/*
+
+		DEEPVARIANT (
+			bam,
+			params.bed,
+			params.intervals,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.capture,
+			params.scratch )
+
+		FILTER_VCF_DEEPVARIANT (
+			DEEPVARIANT.out.vcf )
+
+
+
+
+		STR_MODEL_DRAGEN(
+			bam,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.reference_str,
+			params.scratch )
+
+		HAPLOTYPECALLER_DRAGEN(
+			bam.join(STR_MODEL_DRAGEN.out.strmodel),
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTRATION_DRAGEN(
+			HAPLOTYPECALLER_DRAGEN.out.vcf,
+			params.scratch )
+
+		FILTER_VCF_DRAGEN(
+			FILTRATION_DRAGEN.out.vcf )
+*/
 
 	emit:
 		finalvcf = FILTER_VCF.out.vcf
@@ -906,27 +960,17 @@ workflow {
 	}
 
 
+
+
+
 	// Quality check
 	if ( params.analysis.toUpperCase().contains("Q") ) {
-		
-/*		if ( params.analysis.toUpperCase().contains("M") ) {
-				
-			bam = MAPPING.out.bam
-
-		} else {
-			
-			LOCALBAM (
-				params.input,
-				CHECK_PARAMS.out.samples2analyce )
-
-			bam = LOCALBAM.out.bam
-		}*/
 
 		QUALITYCHECK(
 			bam,
 			CHECK_PARAMS.out.runname)
+	
 	}
-
 
 
 
@@ -934,48 +978,23 @@ workflow {
 
 	// SNV calling
 	if ( params.analysis.toUpperCase().contains("S") ) {
-/*		if ( params.analysis.toUpperCase().contains("M") ) {
-			
-			bam = MAPPING.out.bam
 
-		} else {
-			
-			LOCALBAM (
-				params.input,
-				CHECK_PARAMS.out.samples2analyce )
-
-			bam = LOCALBAM.out.bam
-		}*/
-
-
-		// SNV calling
-		SNVCALLING ( bam )
+		SNVCALLING ( bam.join(CHECK_PARAMS.out.samples2analyce) )
+	
 	}
+
 
 
 
 
 	// SNV calling GVCF mode
 	if ( params.analysis.toUpperCase().contains("G") ) {
-/*		if ( params.analysis.toUpperCase().contains("M") ) {
-			
-			bam = MAPPING.out.bam
 
-		} else {
-			
-			LOCALBAM (
-				params.input,
-				CHECK_PARAMS.out.samples2analyce )
-
-			bam = LOCALBAM.out.bam
-		}*/
-
-
-		// SNV calling
 		COMBINEDSNVCALLING ( 
 			bam,
 			CHECK_PARAMS.out.runname )
 	}
+
 
 
 

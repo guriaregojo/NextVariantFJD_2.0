@@ -100,7 +100,7 @@ df_out$Raw_total_read_number = samtools_flagstat$primary
 # chr <- function(n) { rawToChar(as.raw(n)) }
 # aa = c()
 # for (i in 33:73) aa = c(aa, chr(i))
-qscore <- function(x) { strtoi(charToRaw(x),16L)-33 }
+qscore <- function(x) { strtoi(charToRaw(as.character(x)),16L)-33 }
 quality$V3=0
 for(i in 1:nrow(quality)) quality$V3[i] = qscore(quality$V2[i])
 df_out$Q20=round(sum(quality$V1[quality$V3 >= 20])/sum(quality$V1)*100, 2) # Percentage of bases with a quality equal or higher than 20

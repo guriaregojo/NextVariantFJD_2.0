@@ -43,7 +43,7 @@ RUN apt-get install -y bedtools
 WORKDIR /tmp
 # RUN wget https://github.com/mquinodo/AutoMap/archive/refs/heads/master.zip
 # RUN unzip master.zip
-# RUN mv /tmp/AutoMap /home/docker/
+# RUN mv /tmp/AutoMap-master /home/docker/AutoMap
 
 # ADD AutoMap/ /home/docker/AutoMap/
 RUN git clone https://github.com/mquinodo/AutoMap
@@ -96,6 +96,6 @@ RUN R -e "install.packages('plyr')"
 
 CMD /bin/bash
 
-#docker build -t automap -f Dockerfile .
+#docker build -t bioinfotools_tmp -f Dockerfile .
 
 

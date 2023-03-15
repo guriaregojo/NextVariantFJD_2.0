@@ -4,6 +4,8 @@
 
 
 process BS_CHECK {
+	label "basespace"
+
 	input:
 		val project
 		val baseuser
@@ -16,16 +18,16 @@ process BS_CHECK {
 		path "samples2analyce.txt", emit: samples2analyce
 
 	script:
-		def baseuser_field = baseuser ? "--config ${baseuser} " : ''
+		def baseuser_config = baseuser ? "--config ${baseuser} " : ''
 		
 		if(samples && analysis.contains("C"))
 			"""
-			bs list projects -f csv -F Name ${baseuser_field} > projects.txt
+			bs list projects -f csv -F Name ${baseuser_config} > projects.txt
 
 
 			if grep -Fq ${project} projects.txt; then
 				bs list biosample --sort-by=BioSampleName -f csv -F BioSampleName \
-				${baseuser_field} --project-name=${project} | sort | uniq > controlsamples.txt    
+				${baseuser_config} --project-name=${project} | sort | uniq > controlsamples.txt    
 			else
 				>&2 echo "ERROR: Project '${project}' does not exist in basespace\n"
 				exit 1
@@ -45,12 +47,12 @@ process BS_CHECK {
 
 		else if(samples) 
 			"""
-			bs list projects -f csv -F Name ${baseuser_field} > projects.txt
+			bs list projects -f csv -F Name ${baseuser_config} > projects.txt
 
 
 			if grep -Fq ${project} projects.txt; then
 				bs list biosample --sort-by=BioSampleName -f csv -F BioSampleName \
-				${baseuser_field} --project-name=${project} | sort | uniq > controlsamples.txt    
+				${baseuser_config} --project-name=${project} | sort | uniq > controlsamples.txt    
 			else
 				>&2 echo "ERROR: Project '${project}' does not exist in basespace\n"
 				exit 1
@@ -73,12 +75,12 @@ process BS_CHECK {
 
 		else 
 			"""
-			bs list projects -f csv -F Name ${baseuser_field} > projects.txt
+			bs list projects -f csv -F Name ${baseuser_config} > projects.txt
 
 
 			if grep -Fq ${project} projects.txt; then
 				bs list biosample --sort-by=BioSampleName -f csv -F BioSampleName \
-				${baseuser_field} --project-name=${project} | sort | uniq > controlsamples.txt    
+				${baseuser_config} --project-name=${project} | sort | uniq > controlsamples.txt    
 			else
 				>&2 echo "ERROR: Project '${project}' does not exist in basespace\n"
 				exit 1
@@ -101,6 +103,8 @@ process BS_CHECK {
 
 
 process LOCAL_CHECK {
+	label "bioinfotools"
+
 	input:
 		path input
 		path samples
@@ -169,7 +173,9 @@ process LOCAL_CHECK {
 
 
 process BS_COPY {
+	label "basespace"
 
+	publishDir "${params.output}/fastq", mode: 'copy'
 	maxRetries 4
 	errorStrategy { task.attempt in 4 ? 'retry' : 'ignore' }
 
@@ -190,7 +196,7 @@ process BS_COPY {
 		def baseuser_config = baseuser ? "--config ${baseuser} " : ''
 		"""
 		echo ${sample2download_config} > ${sample2download_config}.sample.txt
-		bs download biosample -q -n "${sample2download_config}" --exclude '*' --include '*.fastq.gz'
+		bs download biosample ${baseuser_config} -q -n "${sample2download_config}" --exclude '*' --include '*.fastq.gz'
 
 
 		cat ${sample2download_config}*/*_R1*fastq.gz > ${sample2download_config}_R1.fastq.gz
@@ -200,7 +206,38 @@ process BS_COPY {
 
 
 
+
+process BS_COPY_PROJECT {
+	label "basespace"
+
+	publishDir "${params.output}/fastq", mode: 'copy'
+	maxRetries 4
+	errorStrategy { task.attempt in 4 ? 'retry' : 'ignore' }
+
+
+	input:
+		val project
+		val baseuser
+
+	output:
+		path("./fastq/"), emit: fastq
+
+	script:
+		def baseuser_config = baseuser ? "--config ${baseuser} " : ''
+		"""
+		bs download project ${baseuser_config} -q -n "${project}" --exclude '*' --include '*.fastq.gz'
+
+		mkdir ./fastq
+		mv */*fastq.gz ./fastq
+		"""
+}
+
+
+
+
 process FASTQ_CONCATENATION {
+	label "bioinfotools"
+
 	input:
 		path inputdir
 		val sample2concat
@@ -249,6 +286,9 @@ process FASTQ_CONCATENATION {
 
 
 process BWA {
+	label "bwa"
+	label "highcpu"
+	label "highmem"
 	errorStrategy 'ignore'
 
 	input:
@@ -259,7 +299,6 @@ process BWA {
 		path bwa_pac
 		path bwa_bwt
 		path bwa_sa
-		val bwa_threads
 
 	output:
 		tuple \
@@ -271,7 +310,7 @@ process BWA {
 		// forward = fastq[1]
 		// reverse = fastq[2]
 		"""
-		bwa mem -v 3 -t ${bwa_threads} -Y \\
+		bwa mem -v 3 -t \$(nproc) -Y \\
 		${ref} \\
 		${forward} \\
 		${reverse} |  samtools view -1 > ${sample}.mapped.bam
@@ -284,6 +323,7 @@ process BWA {
 
 
 process FASTQTOSAM {
+	label "gatk"
 	errorStrategy 'ignore'
 
 	input:
@@ -317,6 +357,7 @@ process FASTQTOSAM {
 
 
 process MERGEBAMALIGNMENT {
+	label "gatk"
 	errorStrategy 'ignore'
 
 	input:
@@ -371,8 +412,10 @@ process MERGEBAMALIGNMENT {
 
 
 process MARKDUPLICATESSPARK {
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
 	errorStrategy 'ignore'
-
 	publishDir "${params.output}/mapping_stats", mode: 'copy', pattern: "marked_dup_metrics*"
 	
 
@@ -407,7 +450,7 @@ process MARKDUPLICATESSPARK {
 		--create-output-bam-index true \
 		${scratch_field}
 
-		chmod 777 \$(find . -user root) 
+		#chmod 777 \$(find . -user root) 
 		"""
 
 
@@ -420,7 +463,8 @@ process MARKDUPLICATESSPARK {
 
 
 
-process SORTSAM {	
+process SORTSAM {
+	label "gatk"	
 	errorStrategy 'ignore'
 
 	input:
@@ -457,6 +501,7 @@ process SORTSAM {
 
 
 process SETTAGS {	
+	label "gatk"
 	errorStrategy 'ignore'
 
 	input:
@@ -499,6 +544,7 @@ process SETTAGS {
 
 
 process BASERECALIBRATOR {	
+	label "gatk"
 	publishDir "${params.output}/mapping_stats", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -547,6 +593,7 @@ process BASERECALIBRATOR {
 
 
 process APPLYBQSR {	
+	label "gatk"
 	publishDir "${params.output}/bams", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -557,15 +604,16 @@ process APPLYBQSR {
 		path dict
 		path reference_gzi
 		path scratch
+		val assembly
 		
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.bam"), \
-			path("${sample}.bai"), emit: bam
+			path("${sample}.${assembly}.bam"), \
+			path("${sample}.${assembly}.bai"), emit: bam
 		tuple \
 			val(sample), \
-			path("${sample}.bam.md5"), emit: md5 
+			path("${sample}.${assembly}.bam.md5"), emit: md5 
 
 	script:
 		// def scratch_field = scratch ? "--TMP-DIR ${scratch}/${sample}_SortSam" : ""
@@ -574,7 +622,7 @@ process APPLYBQSR {
 		-R ${ref} \
 		-I ${deduppedsorted}  \
 		--bqsr ${bqsr_table} \
-		-O ${sample}.bam \
+		-O ${sample}.${assembly}.bam \
 		--static-quantized-quals 10 --static-quantized-quals 20 --static-quantized-quals 30 \
 		--add-output-sam-program-record \
 		--create-output-bam-md5 \
@@ -590,6 +638,7 @@ process APPLYBQSR {
 
 
 process LOCALBAM {	
+	label "bioinfotools"
 
 	input:
 		path inputdir
@@ -638,6 +687,7 @@ process LOCALBAM {
 
 
 process MOSDEPTH {
+	label "bioinfotools"
 	publishDir "${params.output}/qc/mosdepth/", mode: 'copy', pattern: "*txt"
 	errorStrategy 'ignore'
 
@@ -696,6 +746,7 @@ process MOSDEPTH_JOIN {
 */
 
 process MOSDEPTH_PLOT {
+	label "python"
 	publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -719,6 +770,7 @@ process MOSDEPTH_PLOT {
 
 
 process MOSDEPTH_COV {
+	label "bioinfotools"
 	publishDir "${params.output}/qc/mosdepth_cov", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -762,6 +814,7 @@ process MOSDEPTH_COV {
 
 
 process GENOMECOV {
+	label "bioinfotools"
 	publishDir "${params.output}/qc/genomecov/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -800,6 +853,7 @@ process GENOMECOV {
 
 
 process SAMTOOLS_FLAGSTAT {
+	label "bioinfotools"
 	// publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -824,6 +878,7 @@ process SAMTOOLS_FLAGSTAT {
 
 
 process READ_LENGTH_STATS {
+	label "bioinfotools"
 	// publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -846,6 +901,7 @@ process READ_LENGTH_STATS {
 
 
 process SEQUENCING_QUALITY_SCORES {
+	label "bioinfotools"
 	// publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -867,6 +923,7 @@ process SEQUENCING_QUALITY_SCORES {
 
 
 process SEQUENCING_CG_AT_CONTENT {
+	label "bioinfotools"
 	// publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -889,6 +946,7 @@ process SEQUENCING_CG_AT_CONTENT {
 
 
 process NREADS_NONDUP_UNIQ {
+	label "bioinfotools"
 	// publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -910,6 +968,8 @@ process NREADS_NONDUP_UNIQ {
 
 
 process QC_SUMMARY {
+	label "bioinfotools"
+	label "highmem"
 	publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -950,6 +1010,7 @@ process QC_SUMMARY {
 
 
 process RUN_QC_CAT {
+	label "bioinfotools"
 	publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -990,6 +1051,9 @@ process RUN_QC_CAT {
 
 
 process HAPLOTYPECALLER {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
 	// publishDir "${params.output}/", mode: 'copy'
 
 	input:
@@ -1017,7 +1081,7 @@ process HAPLOTYPECALLER {
 		"""
 		${scratch_mkdir}
 
-		gatk --java-options "-Xmx${params.bigmem}g" \
+		gatk --java-options "-Xmx\$((\$(nproc) * 5))g" \
 		HaplotypeCaller ${scratch_field} \
 		-R ${ref} \
 		-I ${bam} \
@@ -1032,7 +1096,10 @@ process HAPLOTYPECALLER {
 
 
 
-process SELECT_SNV {	
+process SELECT_SNV {
+	label "gatk"	
+	label "mediumcpu"
+	label "mediummem"
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1068,6 +1135,9 @@ process SELECT_SNV {
 
 
 process SELECT_INDEL {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1101,7 +1171,10 @@ process SELECT_INDEL {
 
 
 
-process SELECT_MIX {	
+process SELECT_MIX {
+	label "gatk"	
+	label "mediumcpu"
+	label "mediummem"
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1139,6 +1212,9 @@ process SELECT_MIX {
 
 
 process FILTRATION_SNV {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1183,6 +1259,9 @@ process FILTRATION_SNV {
 
 
 process FILTRATION_INDEL {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1225,6 +1304,9 @@ process FILTRATION_INDEL {
 
 
 process FILTRATION_MIX {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1263,6 +1345,9 @@ process FILTRATION_MIX {
 
 
 process MERGE_VCF {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
 	
 	//publishDir "${params.output}/snvs", mode: 'copy'
 	input:
@@ -1298,8 +1383,9 @@ process MERGE_VCF {
 
 
 process FILTER_VCF {	
-
+	label "vep"
 	publishDir "${params.output}/snvs", mode: 'copy'
+	
 	input:
 		tuple val(sample), path(vcf_snv), path(idx_snv)
 		
@@ -1329,7 +1415,10 @@ process FILTER_VCF {
 
 
 
-process DEEPVARIANT {	
+process DEEPVARIANT {
+	label "deepvariant"	
+	label "highcpu"	
+	label "highmem"	
 	// publishDir "${params.output}/", mode: 'copy'
 
 	input:
@@ -1379,8 +1468,9 @@ process DEEPVARIANT {
 
 
 process FILTER_VCF_DEEPVARIANT {	
-
+	label "vep"
 	publishDir "${params.output}/snvs", mode: 'copy'
+	
 	input:
 		tuple val(sample), path(vcf_snv), path(idx_snv)
 		
@@ -1407,6 +1497,7 @@ process FILTER_VCF_DEEPVARIANT {
 
 
 process STR_MODEL_DRAGEN {	
+	label "gatk"
 	// publishDir "${params.output}/", mode: 'copy'
 
 	input:
@@ -1442,6 +1533,7 @@ process STR_MODEL_DRAGEN {
 
 
 process HAPLOTYPECALLER_DRAGEN {	
+	label "gatk"
 	// publishDir "${params.output}/", mode: 'copy'
 
 	input:
@@ -1469,7 +1561,7 @@ process HAPLOTYPECALLER_DRAGEN {
 		"""
 		${scratch_mkdir}
 
-		gatk --java-options "-Xmx${params.bigmem}g" \
+		gatk --java-options "-Xmx\$((\$(nproc) * 5))g" \
 		HaplotypeCaller ${scratch_field} \
 		--dragen-mode \
 		--dragstr-params-path ${str} \
@@ -1484,6 +1576,7 @@ process HAPLOTYPECALLER_DRAGEN {
 
 
 process FILTRATION_DRAGEN {	
+	label "gatk"
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1513,6 +1606,7 @@ process FILTRATION_DRAGEN {
 
 
 process FILTER_VCF_DRAGEN {	
+	label "vep"
 
 	publishDir "${params.output}/snvs", mode: 'copy'
 	input:
@@ -1553,6 +1647,7 @@ process FILTER_VCF_DRAGEN {
 
 
 process LOCALVCF {	
+	label "bioinfotools"
 
 	input:
 		path inputdir
@@ -1581,7 +1676,8 @@ process LOCALVCF {
 
 
 process FORMAT2INFO {
-	
+	label "bioinfotools"
+
 	input:
 		tuple val(sample), path(final_vcf)
 
@@ -1609,7 +1705,7 @@ process FORMAT2INFO {
 		bcftools view -h ${final_vcf} | grep "#CHROM" | cut -f1-8 >> ${sample}.vcf_to_annotate.vcf
 
 
-		bcftools query -f 'variant_id=%CHROM\\_%POS\\_%REF\\_%ALT;Original_pos=%POS;[;%SAMPLE\\_GT=%GT][;%SAMPLE\\_AD=%AD][;%SAMPLE\\_DP=%DP][;%SAMPLE\\_GQ=%GQ]\\n' ${final_vcf} | sed 's/;//2' | sed 's/,/_/g' > new_info.txt
+		bcftools query -f 'variant_id=%CHROM\\_%POS\\_%REF\\_%ALT;Original_pos=%POS;[;%SAMPLE\\_GT=%GT][;%SAMPLE\\_AD=%AD][;%SAMPLE\\_DP=%DP][;%SAMPLE\\_GQ=%GQ]\\n' -u ${final_vcf} | sed 's/;//2' | sed 's/,/_/g' > new_info.txt
 		bcftools view -H ${final_vcf} | cut -f1-8 > old_info.txt
 		paste -d ';' old_info.txt new_info.txt >> ${sample}.vcf_to_annotate.vcf
 		
@@ -1634,137 +1730,8 @@ process FORMAT2INFO {
 
 
 
-
-
-
-
-
-process VEP {
-	publishDir "${params.output}/snvs/", mode: 'copy'
-	errorStrategy 'ignore'
-
-	input:
-		path(dbscSNV)
-		path(dbscSNV_tbi)
-		path loFtool
-		path exACpLI
-		path(dbNSFP)
-		path(dbNSFP_tbi)
-		path maxEntScan
-		path(cADD_INDELS)
-		path(cADD_INDELS_tbi)
-		path(cADD_SNVS)
-		path(cADD_SNVS_tbi)
-		path(kaviar)
-		path(kaviar_tbi)
-		path(cCRS_DB)
-		path(cCRS_DB_tbi)
-		path(dENOVO_DB)
-		path(dENOVO_DB_tbi)
-		path(cLINVAR)
-		path(cLINVAR_tbi)
-		path(gNOMADg)
-		path(gNOMADg_tbi)
-		path(gNOMADe)
-		path(gNOMADe_tbi)
-		path(gNOMADg_cov)
-		path(gNOMADg_cov_tbi)
-		path(gNOMADe_cov)
-		path(gNOMADe_cov_tbi)
-		path(cSVS)
-		path(cSVS_tbi)
-		path(mutScore)
-		path(mutScore_tbi)
-		path(mAF_FJD_COHORT)
-		path(mAF_FJD_COHORT_tbi)
-		path(spliceAI_SNV)
-		path(spliceAI_SNV_tbi)
-		path(spliceAI_INDEL)
-		path(spliceAI_INDEL_tbi)
-		val vep_threads
-		path vep_cache
-		path vep_plugins
-		path vep_fasta
-		path vep_fai
-		path vep_gzi
-		val vep_assembly
-		tuple val(sample), path(final_vcf), path(sample_info), path(sample_info_index), path(sample_info_fields)
-		
-	
-	output:
-		tuple \
-			val(sample), \
-			path("${sample}.vep.tsv"), emit: vep_tsv
-	
-	script:
-		def dbscSNV_config = dbscSNV ? "--plugin dbscSNV,${dbscSNV} " : ''
-		def loFtool_config = loFtool ? "--plugin LoFtool,${loFtool} " : ''
-		def exACpLI_config = exACpLI ? "--plugin ExACpLI,${exACpLI} " : ''
-		def dbNSFP_config  = dbNSFP  ? "--plugin dbNSFP,${dbNSFP},\
-LRT_pred,M-CAP_pred,MetaLR_pred,MetaSVM_pred,MutationAssessor_pred,MutationTaster_pred,PROVEAN_pred,\
-FATHMM_pred,MetaRNN_pred,PrimateAI_pred,DEOGEN2_pred,BayesDel_addAF_pred,BayesDel_noAF_pred,ClinPred_pred,\
-LIST-S2_pred,Aloft_pred,fathmm-MKL_coding_pred,fathmm-XF_coding_pred,Polyphen2_HDIV_pred,Polyphen2_HVAR_pred,\
-phyloP30way_mammalian,phastCons30way_mammalian,GERP++_RS,Interpro_domain,GTEx_V8_gene,GTEx_V8_tissue " : ''
-		def maxEntScan_config     = maxEntScan    ? "--plugin MaxEntScan,${maxEntScan} " : ''
-		def cADD_config           = cADD_INDELS && cADD_SNVS ? "--plugin CADD,${cADD_INDELS},${cADD_SNVS} " : ''
-		def kaviar_config         = kaviar         ? "--custom ${kaviar},kaviar,vcf,exact,0,AF,AC,AN " : ''
-		def cCRS_DB_config        = cCRS_DB        ? "--custom ${cCRS_DB},gnomAD_exomes_CCR,bed,overlap,0 " : ''
-		def dENOVO_DB_config      = dENOVO_DB      ? "--custom ${dENOVO_DB},denovoVariants,vcf,exact,0,SAMPLE_CT " : ''
-		def cLINVAR_config        = cLINVAR        ? "--custom ${cLINVAR},ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN " : ''
-		def gNOMADg_config        = gNOMADg        ? "--custom ${gNOMADg},gnomADg,vcf,exact,0,AF,AC,AN,nhomalt,popmax,AF_popmax,AC_popmax,AF_nfe,AC_nfe,filt " : ''
-		def gNOMADe_config        = gNOMADe        ? "--custom ${gNOMADe},gnomADe,vcf,exact,0,AF,AC,AN,nhomalt,popmax,AF_popmax,AC_popmax,AF_nfe,AC_nfe,filt " : ''
-		def gNOMADg_cov_config    = gNOMADg_cov    ? "--custom ${gNOMADg_cov},gnomADg_cov,vcf,overlap,0,median,perc_20x " : ''
-		def gNOMADe_cov_config    = gNOMADe_cov    ? "--custom ${gNOMADe_cov},gnomADe_cov,vcf,overlap,0,median,perc_20x " : ''
-		def cSVS_config           = cSVS           ? "--custom ${cSVS},CSVS,vcf,exact,0,AF,AC " : ''
-		def mutScore_config       = mutScore       ? "--custom ${mutScore},Mut,vcf,exact,0,Score " : ''
-		def mAF_FJD_COHORT_config = mAF_FJD_COHORT ? "--custom ${mAF_FJD_COHORT},FJD_MAF,vcf,exact,0,AF,AC " : ''
-		def spliceAI_SNV_config   = spliceAI_SNV   ? "--custom ${spliceAI_SNV},SpliceAI_SNV,vcf,exact,0,SpliceAI " : ''
-		def spliceAI_INDEL_config = spliceAI_INDEL ? "--custom ${spliceAI_INDEL},SpliceAI_INDEL,vcf,exact,0,SpliceAI " : ''
-		def sample_info_config    = sample_info    ? "--custom ${sample_info},SAMPLE,vcf,exact,0\$(cat ${sample_info_fields}) " : ''
-
-		"""
-		vep \\
-		--cache --offline --dir_cache ${vep_cache} --dir_plugins ${vep_plugins} \\
-		--refseq --species homo_sapiens --assembly ${vep_assembly} --force_overwrite --use_transcript_ref \\
-		--verbose --fork ${vep_threads} --tab --format vcf --no_stats \\
-		--fasta ${vep_fasta} \\
-		--input_file ${final_vcf} \\
-		--output_file ${sample}.vep.tsv \\
-		--check_existing --canonical --numbers --hgvs --biotype --regulatory --symbol --protein \\
-		--sift p --polyphen p --allele_number --variant_class --pubmed \\
-		${dbscSNV_config}\\
-		${loFtool_config}\\
-		${exACpLI_config}\\
-		${dbNSFP_config}\\
-		${maxEntScan_config}\\
-		${cADD_config}\\
-		${kaviar_config}\\
-		${cCRS_DB_config}\\
-		${dENOVO_DB_config}\\
-		${cLINVAR_config}\\
-		${gNOMADg_config}\\
-		${gNOMADe_config}\\
-		${gNOMADg_cov_config}\\
-		${gNOMADe_cov_config}\\
-		${cSVS_config}\\
-		${mutScore_config}\\
-		${mAF_FJD_COHORT_config}\\
-		${spliceAI_SNV_config}\\
-		${spliceAI_INDEL_config}\\
-		${sample_info_config}
-
-		"""
-}
-
-
-
-
-
-
-
-
 process AUTOMAP {
-
+	label "bioinfotools"
 	publishDir "${params.output}/automap/", mode: 'copy'
 	errorStrategy 'retry'
 	
@@ -1827,9 +1794,138 @@ process AUTOMAP {
 
 
 
+process VEP {
+	label "vep"
+	label "highcpu"
+	label "highmem"
+	// publishDir "${params.output}/snvs/", mode: 'copy'
+	errorStrategy 'ignore'
+
+	input:
+		path(dbscSNV)
+		path(dbscSNV_tbi)
+		path loFtool
+		path exACpLI
+		path(dbNSFP)
+		path(dbNSFP_tbi)
+		path maxEntScan
+		path(cADD_INDELS)
+		path(cADD_INDELS_tbi)
+		path(cADD_SNVS)
+		path(cADD_SNVS_tbi)
+		path(kaviar)
+		path(kaviar_tbi)
+		path(cCRS_DB)
+		path(cCRS_DB_tbi)
+		path(dENOVO_DB)
+		path(dENOVO_DB_tbi)
+		path(cLINVAR)
+		path(cLINVAR_tbi)
+		path(gNOMADg)
+		path(gNOMADg_tbi)
+		path(gNOMADe)
+		path(gNOMADe_tbi)
+		path(gNOMADg_cov)
+		path(gNOMADg_cov_tbi)
+		path(gNOMADe_cov)
+		path(gNOMADe_cov_tbi)
+		path(cSVS)
+		path(cSVS_tbi)
+		path(mutScore)
+		path(mutScore_tbi)
+		path(mAF_FJD_COHORT)
+		path(mAF_FJD_COHORT_tbi)
+		path(spliceAI_SNV)
+		path(spliceAI_SNV_tbi)
+		path(spliceAI_INDEL)
+		path(spliceAI_INDEL_tbi)
+		path vep_cache
+		path vep_plugins
+		path vep_fasta
+		path vep_fai
+		path vep_gzi
+		val vep_assembly
+		tuple val(sample), path(final_vcf), path(sample_info), path(sample_info_index), path(sample_info_fields)
+		val assembly
+	
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.vep.tsv"), emit: vep_tsv
+	
+	script:
+		def dbscSNV_config = dbscSNV ? "--plugin dbscSNV,${dbscSNV} " : ''
+		def loFtool_config = loFtool ? "--plugin LoFtool,${loFtool} " : ''
+		def exACpLI_config = exACpLI ? "--plugin ExACpLI,${exACpLI} " : ''
+		def dbNSFP_config  = dbNSFP  ? "--plugin dbNSFP,${dbNSFP},\
+LRT_pred,M-CAP_pred,MetaLR_pred,MetaSVM_pred,MutationAssessor_pred,MutationTaster_pred,PROVEAN_pred,\
+FATHMM_pred,MetaRNN_pred,PrimateAI_pred,DEOGEN2_pred,BayesDel_addAF_pred,BayesDel_noAF_pred,ClinPred_pred,\
+LIST-S2_pred,Aloft_pred,fathmm-MKL_coding_pred,fathmm-XF_coding_pred,Polyphen2_HDIV_pred,Polyphen2_HVAR_pred,\
+phyloP30way_mammalian,phastCons30way_mammalian,GERP++_RS,Interpro_domain,GTEx_V8_gene,GTEx_V8_tissue " : ''
+		def maxEntScan_config     = maxEntScan    ? "--plugin MaxEntScan,${maxEntScan} " : ''
+		def cADD_config           = cADD_INDELS && cADD_SNVS ? "--plugin CADD,${cADD_INDELS},${cADD_SNVS} " : ''
+		def kaviar_config         = kaviar         ? "--custom ${kaviar},kaviar,vcf,exact,0,AF,AC,AN " : ''
+		def cCRS_DB_config        = cCRS_DB        ? "--custom ${cCRS_DB},gnomAD_exomes_CCR,bed,overlap,0 " : ''
+		def dENOVO_DB_config      = dENOVO_DB      ? "--custom ${dENOVO_DB},denovoVariants,vcf,exact,0,SAMPLE_CT " : ''
+		def cLINVAR_config        = cLINVAR        ? "--custom ${cLINVAR},ClinVar,vcf,exact,0,CLNSIG,CLNREVSTAT,CLNDN " : ''
+		def gNOMADg_config        = gNOMADg        ? "--custom ${gNOMADg},gnomADg,vcf,exact,0,AF,AC,AN,nhomalt,popmax,AF_popmax,AC_popmax,AF_nfe,AC_nfe,filt " : ''
+		def gNOMADe_config        = gNOMADe        ? "--custom ${gNOMADe},gnomADe,vcf,exact,0,AF,AC,AN,nhomalt,popmax,AF_popmax,AC_popmax,AF_nfe,AC_nfe,filt " : ''
+		def gNOMADg_cov_config    = gNOMADg_cov    ? "--custom ${gNOMADg_cov},gnomADg_cov,vcf,overlap,0,median,perc_20x " : ''
+		def gNOMADe_cov_config    = gNOMADe_cov    ? "--custom ${gNOMADe_cov},gnomADe_cov,vcf,overlap,0,median,perc_20x " : ''
+		def cSVS_config           = cSVS           ? "--custom ${cSVS},CSVS,vcf,exact,0,AF,AC " : ''
+		def mutScore_config       = mutScore       ? "--custom ${mutScore},Mut,vcf,exact,0,Score " : ''
+		def mAF_FJD_COHORT_config = mAF_FJD_COHORT ? "--custom ${mAF_FJD_COHORT},FJD_MAF,vcf,exact,0,AF,AC " : ''
+		def spliceAI_SNV_config   = spliceAI_SNV   ? "--custom ${spliceAI_SNV},SpliceAI_SNV,vcf,exact,0,SpliceAI " : ''
+		def spliceAI_INDEL_config = spliceAI_INDEL ? "--custom ${spliceAI_INDEL},SpliceAI_INDEL,vcf,exact,0,SpliceAI " : ''
+		def sample_info_config    = sample_info    ? "--custom ${sample_info},SAMPLE,vcf,exact,0\$(cat ${sample_info_fields}) " : ''
+
+		"""
+		vep \\
+		--cache --offline --dir_cache ${vep_cache} --dir_plugins ${vep_plugins} \\
+		--refseq --species homo_sapiens --assembly ${vep_assembly} --force_overwrite --use_transcript_ref \\
+		--verbose --fork \$(nproc) --tab --format vcf --no_stats \\
+		--fasta ${vep_fasta} \\
+		--input_file ${final_vcf} \\
+		--output_file ${sample}.${assembly}.vep.tsv \\
+		--check_existing --canonical --numbers --hgvs --biotype --regulatory --symbol --protein \\
+		--sift p --polyphen p --allele_number --variant_class --pubmed \\
+		${dbscSNV_config}\\
+		${loFtool_config}\\
+		${exACpLI_config}\\
+		${dbNSFP_config}\\
+		${maxEntScan_config}\\
+		${cADD_config}\\
+		${kaviar_config}\\
+		${cCRS_DB_config}\\
+		${dENOVO_DB_config}\\
+		${cLINVAR_config}\\
+		${gNOMADg_config}\\
+		${gNOMADe_config}\\
+		${gNOMADg_cov_config}\\
+		${gNOMADe_cov_config}\\
+		${cSVS_config}\\
+		${mutScore_config}\\
+		${mAF_FJD_COHORT_config}\\
+		${spliceAI_SNV_config}\\
+		${spliceAI_INDEL_config}\\
+		${sample_info_config}
+
+		"""
+}
+
+
+
+
+
+
+
+
+
+
 
 process PVM {
-
+	label "bioinfotools"
+	label "highmem"
 	publishDir "${params.output}/snvs/", mode: 'copy'
 	errorStrategy 'ignore'
 
@@ -1842,12 +1938,13 @@ process PVM {
 		path genefilter 
 		path glowgenes 
 		path tasks 
+		val assembly
 
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.pvm.tsv"), \
-			path("${sample}.pvm.tsv.xlsx"), emit: pvm_tsv 
+			path("${sample}.${assembly}.pvm.tsv"), \
+			path("${sample}.${assembly}.pvm.tsv.xlsx"), emit: pvm_tsv 
 	
 	script:
 	
@@ -1860,7 +1957,7 @@ process PVM {
 
 		Rscript ${tasks}/post-VEP_modification.R \\
 		--input ${vep_tsv} \\
-		--output ${sample}.pvm.tsv \\
+		--output ${sample}.${assembly}.pvm.tsv \\
 		--numheader \${header_row} \\
 		--dbNSFPgene ${dbNSFP_gene} \\
 		--regiondict ${regiondict} \\
@@ -1896,7 +1993,7 @@ process PVM {
 
 
 process BEDPROCCESING {
-
+	label "convading"
 	publishDir "${params.output}/cnvs/", mode: 'copy'
 	
 	input:
@@ -1953,7 +2050,7 @@ process BEDPROCCESING {
 
 
 process EXOMEDEPTH {
-
+	label "bioinfotools"
 	publishDir "${params.output}/cnvs/exomedepth", mode: 'copy'
 	errorStrategy 'retry'
 
@@ -1969,9 +2066,9 @@ process EXOMEDEPTH {
 			val(runname), \
 			path("exomedepth*"), emit: cnvs 
 
-		tuple \
+		/*tuple \
 			val(runname), \
-			path("exomedepth.toAnnotate.txt"), emit: toannotate, optional: true
+			path("exomedepth.toAnnotate.txt"), emit: toannotate, optional: true*/
 	
 	script:
 		if ( task.attempt == 1 )
@@ -1992,7 +2089,7 @@ process EXOMEDEPTH {
 
 
 process CONVADING {
-
+	label "convading"
 	publishDir "${params.output}/cnvs/convading", mode: 'copy'
 	errorStrategy 'retry'
 
@@ -2008,7 +2105,7 @@ process CONVADING {
 	output:
 		tuple \
 			val(runname), \
-			path("CoNVaDING*"), emit: toannotate 
+			path("CoNVaDING*"), emit: cnvs 
 
 /*		tuple \
 			val(runname), \
@@ -2030,7 +2127,7 @@ process CONVADING {
 
 
 process PANELCNMOPS {
-
+	label "bioinfotools"
 	publishDir "${params.output}/cnvs/panelmops", mode: 'copy'
 	errorStrategy 'retry'
 
@@ -2046,9 +2143,9 @@ process PANELCNMOPS {
 			val(runname), \
 			path("panelcn.MOPS*"), emit: cnvs 
 		
-		tuple \
+		/*tuple \
 			val(runname), \
-			path("panelcn.MOPS.toAnnotate.txt"), emit: toannotate, optional: true
+			path("panelcn.MOPS.toAnnotate.txt"), emit: toannotate, optional: true*/
 	
 	script:
 		if ( task.attempt == 1 )
@@ -2066,7 +2163,7 @@ process PANELCNMOPS {
 
 
 process CNV_RESULT_MIXER {
-
+	label "bioinfotools"
 	publishDir "${params.output}/cnvs", mode: 'copy'
 	
 	input:
@@ -2101,7 +2198,9 @@ process CNV_RESULT_MIXER {
 
 
 process ANNOTSV {
-
+	label "annotsv"
+	label "highcpu"
+	label "highmem"
 	// publishDir "${params.output}/cnvs", mode: 'copy'
 	
 	input:
@@ -2140,7 +2239,7 @@ process ANNOTSV {
 
 
 process PAM {
-
+	label "bioinfotools"
 	publishDir "${params.output}/cnvs", mode: 'copy'
 	
 	input:
@@ -2189,6 +2288,9 @@ process PAM {
 
 
 process GVCF_HAPLOTYPECALLER {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
 
 	input:
 		tuple val(sample), path(bam), path(bai)
@@ -2215,7 +2317,7 @@ process GVCF_HAPLOTYPECALLER {
 		"""
 		${scratch_mkdir}
 
-		gatk --java-options "-Xmx${params.bigmem}g" \
+		gatk --java-options "-Xmx\$((\$(nproc) * 5))g" \
 		HaplotypeCaller ${scratch_field} \
 		-R ${ref} \
 		-I ${bam} \
@@ -2238,6 +2340,7 @@ process GVCF_HAPLOTYPECALLER {
 
 
 process COMBINE_GVCF {	
+	label "gatk"
 
 	input:
 		path("")
@@ -2274,6 +2377,7 @@ process COMBINE_GVCF {
 
 
 process GENOTYPE_GVCF {	
+	label "gatk"
 
 	input:
 		tuple val(runname), path(gvcf), path(idx)
@@ -2310,6 +2414,7 @@ process GENOTYPE_GVCF {
 
 
 process CALCULATE_GENOTYPE_POSTERIORS {	
+	label "gatk"
 
 	input:
 		tuple val(runname), path(vcf), path(idx)
@@ -2347,6 +2452,7 @@ process CALCULATE_GENOTYPE_POSTERIORS {
 
 
 process VARIANT_FILTRATION {	
+	label "gatk"
 
 	input:
 		tuple val(runname), path(vcf)
@@ -2383,6 +2489,7 @@ process VARIANT_FILTRATION {
 
 
 process VARIANT_ANNOTATOR {	
+	label "gatk"
 
 	input:
 		tuple val(runname), path(vcf)
@@ -2421,7 +2528,9 @@ process VARIANT_ANNOTATOR {
 
 
 process MANTA {	
-
+	label "manta"
+	label "highcpu"
+	label "highmem"
 	publishDir "${params.output}/cnvs", mode: 'copy'
 
 	input:
@@ -2467,7 +2576,9 @@ process MANTA {
 
 
 process ANNOTSV_VCF {
-
+	label "annotsv"
+	label "highcpu"
+	label "highmem"
 	publishDir "${params.output}/cnvs", mode: 'copy'
 	
 	input:

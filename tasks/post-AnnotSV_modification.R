@@ -33,8 +33,8 @@ opt=parse_args(opt_parser) #list of the args
 # opt$input <- "/home/gonzalo/tblab/mnt/genetica4/gonzalo/pruebas_merge_cnvs/results2/cnvs/2022-06-13_15-16.CNV.annotated.tsv"
 # opt$outputfile <- "/home/gonzalo/tblab/mnt/genetica4/gonzalo/pruebas_merge_cnvs/results2/cnvs/2022-06-13_15-16.CNV.annotated.final.tsv"
 # opt$extracolnames <- "/home/gonzalo/tblab/mnt/genetica4/gonzalo/pruebas_merge_cnvs/cnvs/colnames.txt"
-# opt$genefilter_path = "/home/gonzalo/tblab/mnt/genetica7/distrofias_retina_sindr_nosindr.txt"
-# opt$glowgenes_path = "/home/gonzalo/tblab/mnt/genetica7/GLOWgenes_prioritization_IRD_sindr_nosidr.txt"
+# opt$genefilter = "/home/gonzalo/tblab/mnt/genetica7/distrofias_retina_sindr_nosindr.txt"
+# opt$glowgenes = "/home/gonzalo/tblab/mnt/genetica7/GLOWgenes_prioritization_IRD_sindr_nosidr.txt"
 
 # 
 # opt=list()
@@ -46,8 +46,8 @@ opt=parse_args(opt_parser) #list of the args
 input <- opt$input
 outputfile <- opt$outputfile
 extracolnames <- opt$extracolnames
-genefilter_path <- opt$genefilter_path
-glowgenes_path <- opt$glowgenes_path
+genefilter_path <- opt$genefilter
+glowgenes_path <- opt$glowgenes
 
 
 

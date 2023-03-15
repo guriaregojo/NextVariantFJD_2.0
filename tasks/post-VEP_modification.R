@@ -203,12 +203,55 @@ alleles = unlist(lapply(vep$`#Uploaded_variation`, function(x) strsplit(x, "_")[
 alleles_df = data.frame(alleles, vep$Allele, row.names = 1:nrow(vep), stringsAsFactors = F)
 vep$alleles_pos = as.numeric(unlist(apply(alleles_df,1, function(x) which(strsplit(x[1], "/")[[1]] == x[2]))))
 for (sample in samples){
-  df_out[,paste0(sample,"_GT")] = vep[,paste0("SAMPLE_", sample,"_GT")]
-  AD = as.numeric(apply(vep, 1, function(x) strsplit(x[paste0("SAMPLE_", sample,"_AD")], split = "_")[[1]][as.numeric(x["alleles_pos"])]))
-  df_out[,paste0(sample,"_VF")] = round(AD/as.numeric(vep[,paste0("SAMPLE_", sample,"_DP")]),2)
-  df_out[,paste0(sample,"_AD")] = vep[,paste0("SAMPLE_", sample,"_AD")]
-  df_out[,paste0(sample,"_DP")] = as.numeric(vep[,paste0("SAMPLE_", sample,"_DP")])
-  df_out[,paste0(sample,"_GQ")] = as.numeric(vep[,paste0("SAMPLE_", sample,"_GQ")])
+  
+  tryCatch(
+    {
+      df_out[,paste0(sample,"_GT")] = vep[,paste0("SAMPLE_", sample,"_GT")]
+    },
+    error=function(e) print(paste0("There is no GT information of the sample ", sample)), 
+    warning=function(e) print(paste0("There is no GT information of the sample ", sample))
+  )
+  
+  tryCatch(
+    {
+      AD = as.numeric(apply(vep, 1, function(x) strsplit(x[paste0("SAMPLE_", sample,"_AD")], split = "_")[[1]][as.numeric(x["alleles_pos"])]))
+    },
+    error=function(e) print(paste0("There is no AD information of the sample ", sample)), 
+    warning=function(e) print(paste0("There is no AD information of the sample ", sample))
+  )
+  
+  tryCatch(
+    {
+      df_out[,paste0(sample,"_VF")] = round(AD/as.numeric(vep[,paste0("SAMPLE_", sample,"_DP")]),2)
+      
+    },
+    error=function(e) print(paste0("There is no AD or DP information of the sample ", sample)), 
+    warning=function(e) print(paste0("There is no AD or DP information of the sample ", sample))
+  )
+  
+  tryCatch(
+    {
+      df_out[,paste0(sample,"_AD")] = vep[,paste0("SAMPLE_", sample,"_AD")] 
+    },
+    error=function(e) print(paste0("There is no AD information of the sample ", sample)), 
+    warning=function(e) print(paste0("There is no AD information of the sample ", sample))
+  )
+  
+  tryCatch(
+    {
+      df_out[,paste0(sample,"_DP")] = as.numeric(vep[,paste0("SAMPLE_", sample,"_DP")])
+    },
+    error=function(e) print(paste0("There is no DP information of the sample ", sample)), 
+    warning=function(e) print(paste0("There is no DP information of the sample ", sample))
+  )
+    
+  tryCatch(
+    {
+      df_out[,paste0(sample,"_GQ")] = as.numeric(vep[,paste0("SAMPLE_", sample,"_GQ")])
+    },
+    error=function(e) print(paste0("There is no GQ information of the sample ", sample)), 
+    warning=function(e) print(paste0("There is no GQ information of the sample ", sample))
+  )
   
   # Sacar del output de autopmap
   tryCatch(

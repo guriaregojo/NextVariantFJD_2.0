@@ -23,6 +23,7 @@ samples      : $params.samples
  * Import modules 
  */
 include { BS_CHECK } from './modules/execution_modules'
+include { BS_COPY_PROJECT } from './modules/execution_modules'
 include { LOCAL_CHECK } from './modules/execution_modules'
 include { BS_COPY } from './modules/execution_modules'
 include { FASTQ_CONCATENATION } from './modules/execution_modules'
@@ -163,14 +164,14 @@ workflow CHECK_PARAMS {
 
 		// Check the existance of the input file
 		if ( !params.input ) {exit 1, "Error: Missing input file definition.\n"}
-		if ( params.input && !params.basespace ) { file(params.input, type: "dir", checkIfExists: true) }
+		if ( params.input && !params.analysis.toUpperCase().contains("D") ) { file(params.input, type: "dir", checkIfExists: true) }
 		println "Input folder check"
 		
 
 
 		// Define the run name
-		if ( params.basespace )  { runname = params.input }
-		else if (params.runname) { runname = params.runname } 
+		if (params.runname) { runname = params.runname }
+		else if ( params.analysis.toUpperCase().contains("D") )  { runname = params.input }
 		else { runname = new Date().format("yyyy-MM-dd_HH-mm") }
 		println "Run name: $runname" 
 
@@ -194,9 +195,10 @@ workflow CHECK_PARAMS {
 
 
 		// Check the existance of the bed file
-		m = params.analysis.toUpperCase() =~ /[CX]/
-		assert m instanceof Matcher
-		if ( !params.bed && ( m || params.intervals ) && params.capture != "G") {
+		// cnv_analysis_check = params.analysis.toUpperCase() =~ /[CX]/
+		// assert cnv_analysis_check instanceof Matcher
+		// if ( !params.bed && ( cnv_analysis_check || params.intervals ) && params.capture != "G") {
+		if ( !params.bed && ( (params.analysis.toUpperCase() =~ /[CX]/) || params.intervals ) && params.capture != "G") {
 			exit 1, "Error: No bedfile provided and CNV calling or '--intervals' was provided for Panels or WES analisis.\n"
 		} else if ( params.bed ) {
 			bedfile = file(params.bed, type: "file", checkIfExists: true)
@@ -215,20 +217,21 @@ workflow CHECK_PARAMS {
 
 
 		// Check the type of the analysis
-		m = params.analysis.toUpperCase() =~ /[MQSGCXAN]/
-		assert m instanceof Matcher
-		if ( !m ) {exit 1, "Error: Cannot recognice the any of the specified analisis analysis.\nThe available analysis are: M (Mapping), S (SNV individual), G (SNV GVCF),\nA (SNV annotation), C (CNV calling), N (CNV annotation), X (chrX CNV calling)\n"}
+		// m = params.analysis.toUpperCase() =~ /[DMQSGCXAN]/
+		// assert m instanceof Matcher
+		// if ( !m ) {exit 1, "Error: Cannot recognice the any of the specified analisis analysis.\nThe available analysis are: D (Download from BaseSpace), M (Mapping), S (SNV individual), G (SNV GVCF),\nA (SNV annotation), C (CNV calling), N (CNV annotation), X (chrX CNV calling)\n"}
+		if ( !(params.analysis.toUpperCase() =~ /[DMQSGCXAN]/) ) {exit 1, "Error: Cannot recognice the any of the specified analisis analysis.\nThe available analysis are: D (Download from BaseSpace), M (Mapping), S (SNV individual), G (SNV GVCF),\nA (SNV annotation), C (CNV calling), N (CNV annotation), X (chrX CNV calling)\n"}
 		println "Analysis type check"
 
 
 
 		// BaseSpace must start with mapping
-		if ( !params.analysis.toUpperCase().contains("M") && params.basespace ) {exit 1, "Error: If basespace parameter is specify, the mapping (M) analysis must be specify.\n"}
-		println "Incompatibility check"
+		/*if ( !params.analysis.toUpperCase().contains("M") && params.analysis.toUpperCase().contains("D") ) {exit 1, "Error: If basespace parameter is specify, the mapping (M) analysis must be specify.\n"}
+		println "Incompatibility check"*/
 
 
 
-		if ( params.basespace ) {
+		if ( params.analysis.toUpperCase().contains("D") && params.samples && !(params.analysis.toUpperCase() =~ /[CX]/) ) {
 
 			BS_CHECK(
 				params.input,
@@ -237,15 +240,37 @@ workflow CHECK_PARAMS {
 				params.analysis.toUpperCase() )
 			controlsamples  = BS_CHECK.out.controlsamples
 			samples2analyce = BS_CHECK.out.samples2analyce
+			input_fastq = params.input
+			
+
 
 		} else {
 
-			LOCAL_CHECK(
-				params.input,
-				params.samples,
-				params.analysis.toUpperCase() )
+			// If all samples are needed (not specified samples or CNV analysis) all proyect is downloaded
+			if ( params.analysis.toUpperCase().contains("D") ){
+				BS_COPY_PROJECT (
+					params.input,
+					params.baseuser )
+
+				LOCAL_CHECK(
+					BS_COPY_PROJECT.out.fastq,
+					params.samples,
+					params.analysis.toUpperCase() )
+				input_fastq = BS_COPY_PROJECT.out.fastq
+			
+			} else {
+
+				LOCAL_CHECK(
+					params.input,
+					params.samples,
+					params.analysis.toUpperCase() )
+				input_fastq = params.input
+
+			}
+			
 			controlsamples  = LOCAL_CHECK.out.controlsamples
 			samples2analyce = LOCAL_CHECK.out.samples2analyce
+			
 		}
 
 		
@@ -256,7 +281,10 @@ workflow CHECK_PARAMS {
 		controlsamples  = controlsamples.splitCsv()
 		samples2analyce = samples2analyce.splitCsv()
 		runname = runname
+		input_fastq = input_fastq
 }
+
+
 
 
 
@@ -264,22 +292,24 @@ workflow CHECK_PARAMS {
 workflow MAPPING {
 	take:
 		mapping_sample
+		input_fastq
 
 	main:
 		
-		if ( params.basespace ) {
+		// Single sample(s) is(are) downloaded when downloaded is indicated, 
 
+		if ( params.analysis.toUpperCase().contains("D") && params.samples && !(params.analysis.toUpperCase() =~ /[CX]/) ) {
 			BS_COPY (
-				params.input,
+				input_fastq,
 				mapping_sample,
 				params.baseuser)
 
 			fastq = BS_COPY.out.fastq
 
 		} else {
-			println  mapping_sample
+			/*println  mapping_sample*/
 			FASTQ_CONCATENATION (
-					params.input,
+					input_fastq,
 					mapping_sample )
 
 			fastq = FASTQ_CONCATENATION.out.fastq
@@ -294,8 +324,7 @@ workflow MAPPING {
 			params.bwa_ann,
 			params.bwa_pac,
 			params.bwa_bwt,
-			params.bwa_sa,
-			params.bwa_threads )
+			params.bwa_sa )
 
 		FASTQTOSAM (
 			fastq,
@@ -358,7 +387,8 @@ workflow MAPPING {
 			params.reference_index,
 			params.reference_dict,
 			params.reference_gzi,
-			params.scratch )
+			params.scratch,
+			params.assembly )
 
 
 	emit:
@@ -507,7 +537,7 @@ workflow ANNOTATION {
 
 		AUTOMAP(
 			final_vcf,
-			params.automap_assembly )
+			params.assembly )
 
 
 		VEP(
@@ -548,14 +578,14 @@ workflow ANNOTATION {
 			params.spliceAI_SNV_tbi,
 			params.spliceAI_INDEL,
 			params.spliceAI_INDEL_tbi,
-			params.vep_threads,
 			params.vep_cache,
 			params.vep_plugins,
 			params.vep_fasta,
 			params.vep_fai,
 			params.vep_gzi,
 			params.vep_assembly,
-			final_vcf.join(FORMAT2INFO.out.sample_info) )
+			final_vcf.join(FORMAT2INFO.out.sample_info),
+			params.assembly )
 
 
 
@@ -567,7 +597,8 @@ workflow ANNOTATION {
 			params.maf,
 			params.genelist,
 			params.glowgenes,
-			params.tasks )
+			params.tasks,
+			params.assembly )
 
 
 	// emit:
@@ -625,7 +656,7 @@ workflow CNVCALLING {
 
 		// CNV merge
 		CNV_RESULT_MIXER(
-			EXOMEDEPTH.out.toannotate.join(CONVADING.out.toannotate).join(PANELCNMOPS.out.toannotate),
+			EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs),
 			params.tasks,
 			samples2analyce )
 
@@ -936,7 +967,9 @@ workflow {
 	// Mapping
 	if ( params.analysis.toUpperCase().contains("M") ) {
 		
-		MAPPING( CHECK_PARAMS.out.controlsamples )
+		MAPPING( 
+			CHECK_PARAMS.out.controlsamples,
+			CHECK_PARAMS.out.input_fastq )
 		
 		bam = MAPPING.out.bam
 	

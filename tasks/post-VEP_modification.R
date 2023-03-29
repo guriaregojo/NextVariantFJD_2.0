@@ -197,61 +197,87 @@ df_out$VARIANT_CLASS = vep$VARIANT_CLASS
 # Sample information #
 #====================#
 print("Sample information")
+# 
+# samples = gsub("_GT$$", "", gsub("^SAMPLE_", "", colnames(vep)[grepl(".*_GT$", colnames(vep), perl = T)])) # Get
+# alleles = unlist(lapply(vep$`#Uploaded_variation`, function(x) strsplit(x, "_")[[1]][3])) # Get all posible alleles (including reference)
+# alleles_df = data.frame(alleles, vep$Allele, row.names = 1:nrow(vep), stringsAsFactors = F)
+# vep$alleles_pos = as.numeric(unlist(apply(alleles_df,1, function(x) which(strsplit(x[1], "/")[[1]] == x[2]))))
+# for (sample in samples){
+#   
+#   tryCatch(
+#     {
+#       df_out[,paste0(sample,"_GT")] = vep[,paste0("SAMPLE_", sample,"_GT")]
+#     },
+#     error=function(e) print(paste0("There is no GT information of the sample ", sample)), 
+#     warning=function(e) print(paste0("There is no GT information of the sample ", sample))
+#   )
+#   
+#   tryCatch(
+#     {
+#       AD = as.numeric(apply(vep, 1, function(x) strsplit(x[paste0("SAMPLE_", sample,"_AD")], split = "_")[[1]][as.numeric(x["alleles_pos"])]))
+#     },
+#     error=function(e) print(paste0("There is no AD information of the sample ", sample)), 
+#     warning=function(e) print(paste0("There is no AD information of the sample ", sample))
+#   )
+#   
+#   tryCatch(
+#     {
+#       df_out[,paste0(sample,"_VF")] = round(AD/as.numeric(vep[,paste0("SAMPLE_", sample,"_DP")]),2)
+#       
+#     },
+#     error=function(e) print(paste0("There is no AD or DP information of the sample ", sample)), 
+#     warning=function(e) print(paste0("There is no AD or DP information of the sample ", sample))
+#   )
+#   
+#   tryCatch(
+#     {
+#       df_out[,paste0(sample,"_AD")] = vep[,paste0("SAMPLE_", sample,"_AD")] 
+#     },
+#     error=function(e) print(paste0("There is no AD information of the sample ", sample)), 
+#     warning=function(e) print(paste0("There is no AD information of the sample ", sample))
+#   )
+#   
+#   tryCatch(
+#     {
+#       df_out[,paste0(sample,"_DP")] = as.numeric(vep[,paste0("SAMPLE_", sample,"_DP")])
+#     },
+#     error=function(e) print(paste0("There is no DP information of the sample ", sample)), 
+#     warning=function(e) print(paste0("There is no DP information of the sample ", sample))
+#   )
+#     
+#   tryCatch(
+#     {
+#       df_out[,paste0(sample,"_GQ")] = as.numeric(vep[,paste0("SAMPLE_", sample,"_GQ")])
+#     },
+#     error=function(e) print(paste0("There is no GQ information of the sample ", sample)), 
+#     warning=function(e) print(paste0("There is no GQ information of the sample ", sample))
+#   )
+#   
+#   # Sacar del output de autopmap
+#   tryCatch(
+#     {
+#       # automap = read.delim(paste0(automap_path,"/", sample, "/", sample, ".HomRegions.tsv"), header = F, comment.char = "#", stringsAsFactors = F)
+#       automap = read.delim(paste0(automap_path, "/", sample, ".HomRegions.tsv"), header = F, comment.char = "#", stringsAsFactors = F)
+#       df_out[,paste0(sample,"_ROH")] = "False"
+#       for (i in 1:nrow(automap)) df_out[df_out$POS >= automap$V2[i] & df_out$POS <= automap$V3[i] & gsub("chr","",df_out$CHROM) == gsub("chr","",automap$V1[i]), paste0(sample,"_ROH")] = "True"
+#     },
+#     error=function(e) print(paste0("There is no AutoMap information of the sample ", sample)), 
+#     warning=function(e) print(paste0("There is no AutoMap information of the sample ", sample))
+#   )
+# }
 
-samples = gsub("_GT$$", "", gsub("^SAMPLE_", "", colnames(vep)[grepl(".*_GT$", colnames(vep), perl = T)])) # Get
-alleles = unlist(lapply(vep$`#Uploaded_variation`, function(x) strsplit(x, "_")[[1]][3])) # Get all posible alleles (including reference)
-alleles_df = data.frame(alleles, vep$Allele, row.names = 1:nrow(vep), stringsAsFactors = F)
-vep$alleles_pos = as.numeric(unlist(apply(alleles_df,1, function(x) which(strsplit(x[1], "/")[[1]] == x[2]))))
+samples = unique(gsub("_.*$", "", gsub("^SAMPLE_", "", colnames(vep)[grepl(".*_GT$", colnames(vep), perl = T)])))
 for (sample in samples){
-  
-  tryCatch(
-    {
-      df_out[,paste0(sample,"_GT")] = vep[,paste0("SAMPLE_", sample,"_GT")]
-    },
-    error=function(e) print(paste0("There is no GT information of the sample ", sample)), 
-    warning=function(e) print(paste0("There is no GT information of the sample ", sample))
-  )
-  
-  tryCatch(
-    {
-      AD = as.numeric(apply(vep, 1, function(x) strsplit(x[paste0("SAMPLE_", sample,"_AD")], split = "_")[[1]][as.numeric(x["alleles_pos"])]))
-    },
-    error=function(e) print(paste0("There is no AD information of the sample ", sample)), 
-    warning=function(e) print(paste0("There is no AD information of the sample ", sample))
-  )
-  
-  tryCatch(
-    {
-      df_out[,paste0(sample,"_VF")] = round(AD/as.numeric(vep[,paste0("SAMPLE_", sample,"_DP")]),2)
-      
-    },
-    error=function(e) print(paste0("There is no AD or DP information of the sample ", sample)), 
-    warning=function(e) print(paste0("There is no AD or DP information of the sample ", sample))
-  )
-  
-  tryCatch(
-    {
-      df_out[,paste0(sample,"_AD")] = vep[,paste0("SAMPLE_", sample,"_AD")] 
-    },
-    error=function(e) print(paste0("There is no AD information of the sample ", sample)), 
-    warning=function(e) print(paste0("There is no AD information of the sample ", sample))
-  )
-  
-  tryCatch(
-    {
-      df_out[,paste0(sample,"_DP")] = as.numeric(vep[,paste0("SAMPLE_", sample,"_DP")])
-    },
-    error=function(e) print(paste0("There is no DP information of the sample ", sample)), 
-    warning=function(e) print(paste0("There is no DP information of the sample ", sample))
-  )
-    
-  tryCatch(
-    {
-      df_out[,paste0(sample,"_GQ")] = as.numeric(vep[,paste0("SAMPLE_", sample,"_GQ")])
-    },
-    error=function(e) print(paste0("There is no GQ information of the sample ", sample)), 
-    warning=function(e) print(paste0("There is no GQ information of the sample ", sample))
-  )
+  for (field in c("GT", "VAF", "AD", "DP", "SF", "GD")){
+    tryCatch(
+      {
+        print(paste0(sample, "_", field))
+        df_out[,paste0(sample, "_", field)] = vep[,paste0("SAMPLE_", sample, "_", field)]
+      },
+      error=function(e) print(paste0("There is no ", field, " information of the sample ", sample)),
+      warning=function(e) print(paste0("There is no ", field, " information of the sample ", sample))
+      )
+  }
   
   # Sacar del output de autopmap
   tryCatch(
@@ -265,6 +291,11 @@ for (sample in samples){
     warning=function(e) print(paste0("There is no AutoMap information of the sample ", sample))
   )
 }
+df_out$hiConfDeNovo = vep$SAMPLE_hiConfDeNovo
+df_out$loConfDeNovo = vep$SAMPLE_loConfDeNovo
+
+
+
 df_out$hiConfDeNovo = vep$SAMPLE_hiConfDeNovo
 df_out$loConfDeNovo = vep$SAMPLE_loConfDeNovo
 
@@ -493,6 +524,27 @@ df_out$Interactions_IntAct = vep$Interactions.IntAct.
 
 df_out$Original_pos = vep$SAMPLE_Original_pos
 df_out$variant_id = vep$SAMPLE_variant_id
+
+
+
+
+
+#==============================================#
+#Extra sample information (individual callers) #
+#==============================================#
+for (sample in samples){
+  for (field in c("DV_GT", "DV_DP", "DV_VD", "DR_GT", "DR_DP", "DR_VD", "GK_GT", "GK_DP", "GK_VD")){
+    tryCatch(
+      {
+        print(paste0(sample, "_", field))
+        df_out[,paste0(sample, "_", field)] = vep[,paste0("SAMPLE_", sample, "_", field)]
+      },
+      error=function(e) print(paste0("There is no ", field, " information of the sample ", sample)),
+      warning=function(e) print(paste0("There is no ", field, " information of the sample ", sample))
+    )
+  }
+} 
+
 
 
 

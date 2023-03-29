@@ -96,6 +96,10 @@ if ((!is.null(genefilter_path)) & (!is.null(glowgenes_path))){
   
   annotated_tsv_ordered = cbind(GLOWgenes, annotated_tsv_ordered)
   colnames(annotated_tsv_ordered)[1]  = "GLOWgenes"
+} else if ((!is.null(genefilter_path))) {
+  genefilter = read.delim(genefilter_path, header = F, stringsAsFactors = F, quote = "", check.names=F)
+  annotated_tsv_ordered = annotated_tsv_ordered[grep(paste(genefilter$V1, collapse = "|"), annotated_tsv_ordered$Gene_name),]
+  
 }
 
 

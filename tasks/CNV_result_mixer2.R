@@ -100,7 +100,7 @@ rownames(extra_info_df) = extra_info_df$cnv_id
 if (!is.null(samplesfilt)){
   samplesfilt_df = read.delim(samplesfilt, stringsAsFactors = F, header = F, quote = "")
   samplesfilt_df$V1 = gsub("_.*", "", samplesfilt_df$V1)
-  all_progrmas_df = all_progrmas_df[all_progrmas_df$SAMPLE %in% samplesfilt_df$V1,]
+  all_progrmas_df = all_progrmas_df[grep(paste(samplesfilt_df$V1, collapse = "|"), all_progrmas_df$SAMPLE),]
 }
 
 
@@ -130,7 +130,7 @@ for (sample_cnvtype in all_progrmas_df_sampleSplit){
 
 extra_info_collapse_df = data.frame()
 extra_info_collapse_list = list()
-cnv_ids = strsplit(merged_cnv_df$V4, ";")
+cnv_ids = strsplit(as.character(merged_cnv_df$V4), ";")
 j = 1
 for (i in cnv_ids){
   selected_rows = extra_info_df[i,]
@@ -145,7 +145,7 @@ final_df = cbind(merged_cnv_df[,c(1:3,5,6)], extra_info_collapse_df[,c(programs,
 colnames(final_df)[1:5] = c("#CHR", "START", "END", "CNV_TYPE", "SAMPLE")
 
 
-final_df$N_PROGRAMS = unlist(apply(final_df[,programs], 1, function(x) sum(!x == "")))
+final_df$N_PROGRAMS = unlist(apply(final_df[,programs,drop=F], 1, function(x) sum(!x == "")))
 
 final_df = final_df[,c("#CHR", "START", "END", "CNV_TYPE", "SAMPLE", "N_PROGRAMS", programs, extra_col_names)]
 final_df = final_df[order(final_df$N_PROGRAMS, decreasing = T),]

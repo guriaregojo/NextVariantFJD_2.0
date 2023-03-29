@@ -23,7 +23,6 @@ samples      : $params.samples
  * Import modules 
  */
 include { BS_CHECK } from './modules/execution_modules'
-include { BS_COPY_PROJECT } from './modules/execution_modules'
 include { LOCAL_CHECK } from './modules/execution_modules'
 include { BS_COPY } from './modules/execution_modules'
 include { FASTQ_CONCATENATION } from './modules/execution_modules'
@@ -46,13 +45,14 @@ include { FILTRATION_SNV } from './modules/execution_modules'
 include { FILTRATION_INDEL } from './modules/execution_modules'
 include { FILTRATION_MIX } from './modules/execution_modules'
 include { MERGE_VCF } from './modules/execution_modules'
-include { FILTER_VCF } from './modules/execution_modules'
 include { DEEPVARIANT } from './modules/execution_modules'
-include { FILTER_VCF_DEEPVARIANT } from './modules/execution_modules'
 include { STR_MODEL_DRAGEN } from './modules/execution_modules'
 include { HAPLOTYPECALLER_DRAGEN } from './modules/execution_modules'
 include { FILTRATION_DRAGEN } from './modules/execution_modules'
-include { FILTER_VCF_DRAGEN } from './modules/execution_modules'
+include { FILTER_VCF as FILTER_VCF_GATK } from './modules/execution_modules'
+include { FILTER_VCF as FILTER_VCF_DEEPVARIANT } from './modules/execution_modules'
+include { FILTER_VCF as FILTER_VCF_DRAGEN } from './modules/execution_modules'
+include { MERGE_VCF_CALLERS } from './modules/execution_modules'
 
 include { GVCF_HAPLOTYPECALLER } from './modules/execution_modules'
 include { COMBINE_GVCF } from './modules/execution_modules'
@@ -231,7 +231,7 @@ workflow CHECK_PARAMS {
 
 
 
-		if ( params.analysis.toUpperCase().contains("D") && params.samples && !(params.analysis.toUpperCase() =~ /[CX]/) ) {
+		if ( params.analysis.toUpperCase().contains("D") ) {
 
 			BS_CHECK(
 				params.input,
@@ -240,37 +240,19 @@ workflow CHECK_PARAMS {
 				params.analysis.toUpperCase() )
 			controlsamples  = BS_CHECK.out.controlsamples
 			samples2analyce = BS_CHECK.out.samples2analyce
-			input_fastq = params.input
-			
+			datasets = BS_CHECK.out.datasets
 
 
 		} else {
 
-			// If all samples are needed (not specified samples or CNV analysis) all proyect is downloaded
-			if ( params.analysis.toUpperCase().contains("D") ){
-				BS_COPY_PROJECT (
-					params.input,
-					params.baseuser )
+			LOCAL_CHECK(
+				params.input,
+				params.samples,
+				params.analysis.toUpperCase() )
 
-				LOCAL_CHECK(
-					BS_COPY_PROJECT.out.fastq,
-					params.samples,
-					params.analysis.toUpperCase() )
-				input_fastq = BS_COPY_PROJECT.out.fastq
-			
-			} else {
-
-				LOCAL_CHECK(
-					params.input,
-					params.samples,
-					params.analysis.toUpperCase() )
-				input_fastq = params.input
-
-			}
-			
 			controlsamples  = LOCAL_CHECK.out.controlsamples
 			samples2analyce = LOCAL_CHECK.out.samples2analyce
-			
+			datasets = []
 		}
 
 		
@@ -281,8 +263,41 @@ workflow CHECK_PARAMS {
 		controlsamples  = controlsamples.splitCsv()
 		samples2analyce = samples2analyce.splitCsv()
 		runname = runname
-		input_fastq = input_fastq
+		datasets = datasets
 }
+
+
+
+workflow DOWNLOAD {
+	take:
+		samplename
+		datasets
+
+	main:
+
+		if ( params.analysis.toUpperCase().contains("D") ) {
+
+			BS_COPY (
+				params.input,
+				samplename,
+				params.baseuser,
+				datasets )
+
+			fastq = BS_COPY.out.fastq
+
+		} else {
+
+			FASTQ_CONCATENATION (
+				params.input,
+				samplename )
+
+			fastq = FASTQ_CONCATENATION.out.fastq
+		}
+
+	emit:
+		fastq = fastq
+}
+
 
 
 
@@ -291,31 +306,9 @@ workflow CHECK_PARAMS {
 
 workflow MAPPING {
 	take:
-		mapping_sample
-		input_fastq
+		fastq
 
 	main:
-		
-		// Single sample(s) is(are) downloaded when downloaded is indicated, 
-
-		if ( params.analysis.toUpperCase().contains("D") && params.samples && !(params.analysis.toUpperCase() =~ /[CX]/) ) {
-			BS_COPY (
-				input_fastq,
-				mapping_sample,
-				params.baseuser)
-
-			fastq = BS_COPY.out.fastq
-
-		} else {
-			/*println  mapping_sample*/
-			FASTQ_CONCATENATION (
-					input_fastq,
-					mapping_sample )
-
-			fastq = FASTQ_CONCATENATION.out.fastq
-		}
-
-		fastq.view()
 
 		BWA (
 			fastq,
@@ -461,11 +454,13 @@ workflow SNVCALLING {
 			params.reference_gzi,
 			params.scratch )
 
-		FILTER_VCF (
-			MERGE_VCF.out.vcf )
+		FILTER_VCF_GATK (
+			MERGE_VCF.out.vcf,
+			params.assembly,
+			"gatk" )
 
 		
-/*
+
 
 		DEEPVARIANT (
 			bam,
@@ -479,7 +474,9 @@ workflow SNVCALLING {
 			params.scratch )
 
 		FILTER_VCF_DEEPVARIANT (
-			DEEPVARIANT.out.vcf )
+			DEEPVARIANT.out.vcf,
+			params.assembly,
+			"deepvariant" )
 
 
 
@@ -509,11 +506,24 @@ workflow SNVCALLING {
 			params.scratch )
 
 		FILTER_VCF_DRAGEN(
-			FILTRATION_DRAGEN.out.vcf )
-*/
+			FILTRATION_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+
+		
+
+
+
+		MERGE_VCF_CALLERS(
+			FILTER_VCF_GATK.out.vcf.join(FILTER_VCF_DEEPVARIANT.out.vcf).join(FILTER_VCF_DRAGEN.out.vcf),
+			params.assembly,
+			params.reference_fasta )
+
+
+
 
 	emit:
-		finalvcf = FILTER_VCF.out.vcf
+		finalvcf = MERGE_VCF_CALLERS.out.vcf
 }
 
 
@@ -597,7 +607,6 @@ workflow ANNOTATION {
 			params.maf,
 			params.genelist,
 			params.glowgenes,
-			params.tasks,
 			params.assembly )
 
 
@@ -635,29 +644,25 @@ workflow CNVCALLING {
 			bam,
 			bai,
 			BEDPROCCESING.out.bed,
-			runname,
-			params.tasks )
+			runname )
 
 		CONVADING(
 			bam,
 			bai,
 			BEDPROCCESING.out.bed,
 			runname,
-			params.tasks,
 			params.fai_convading )
 		
 		PANELCNMOPS(
 			bam,
 			bai,
 			BEDPROCCESING.out.bed,
-			runname,
-			params.tasks )
+			runname )
 
 
 		// CNV merge
 		CNV_RESULT_MIXER(
 			EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs),
-			params.tasks,
 			samples2analyce )
 
 
@@ -672,8 +677,7 @@ workflow CNVCALLING {
 			ANNOTSV.out.annotated_cnv,
 			CNV_RESULT_MIXER.out.colnames,
 			params.genelist,
-			params.glowgenes,
-			params.tasks)
+			params.glowgenes)
 
 	// emit:
 
@@ -838,8 +842,7 @@ workflow QUALITYCHECK {
 			params.bed )
 
 		MOSDEPTH_PLOT(
-			MOSDEPTH.out.mosdepth.collect(),
-			params.tasks )
+			MOSDEPTH.out.mosdepth.collect() )
 
 		MOSDEPTH_COV(
 			bam,
@@ -883,8 +886,7 @@ workflow QUALITYCHECK {
 			bam )
 
 		READ_LENGTH_STATS(
-			bam,
-			params.tasks )
+			bam )
 
 		SEQUENCING_QUALITY_SCORES(
 			bam )
@@ -897,8 +899,7 @@ workflow QUALITYCHECK {
 
 		QC_SUMMARY(
 			GENOMECOV.out.genomecov.join(SAMTOOLS_FLAGSTAT.out.flagstat).join(READ_LENGTH_STATS.out.read_length_stats).join(SEQUENCING_QUALITY_SCORES.out.quality).join(SEQUENCING_CG_AT_CONTENT.out.cg_at).join(NREADS_NONDUP_UNIQ.out.nreads_nondup_uniq),
-			params.bed,
-			params.tasks	)
+			params.bed	)
 
 
 		// library_stats = QC_SUMMARY.out.quality_summary.collect().flatten().filter( ~/.*library.stats.txt$/ ).toList()
@@ -942,6 +943,54 @@ workflow CNVCALLING_WGS {
 
 
 
+// workflow CNVCALLING_WES {
+// 	take:
+// 		bam
+// 		runname
+	
+// 	main:
+
+// 		PREPROCESSINTERVALS (
+// 			params.reference_fasta,
+// 			// params.reference_index,
+// 			// params.reference_gzi,
+// 			params.bed,
+// 			runname )
+
+
+// 		COLLECTREADCOUNTS (
+// 			bam,
+// 			params.reference_fasta,
+// 			// params.reference_index,
+// 			// params.reference_gzi,
+// 			PREPROCESSINTERVALS.out.interval_list )
+
+
+// 		ANNOTATEINTERVALS (
+// 			params.reference_fasta,
+// 			// params.reference_index,
+// 			// params.reference_gzi,
+// 			PREPROCESSINTERVALS.out.interval_list,
+// 			runname )
+
+		
+// 		FILTERINTERVALS (
+// 			PREPROCESSINTERVALS.out.interval_list,
+// 			ANNOTATEINTERVALS.out.annotated_intervals,
+// 			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
+// 			runname )
+
+
+// 	// emit:
+
+// }
+
+
+
+
+
+
+
 
 
 
@@ -962,14 +1011,21 @@ workflow {
 	CHECK_PARAMS ()
 	
 
+	// Download and concatenate samples
+	if ( params.analysis.toUpperCase() =~ /[DM]/ ){
+		
+		DOWNLOAD(
+			CHECK_PARAMS.out.controlsamples,
+			CHECK_PARAMS.out.datasets )
+	
+	}
 
 
 	// Mapping
 	if ( params.analysis.toUpperCase().contains("M") ) {
 		
 		MAPPING( 
-			CHECK_PARAMS.out.controlsamples,
-			CHECK_PARAMS.out.input_fastq )
+			DOWNLOAD.out.fastq )
 		
 		bam = MAPPING.out.bam
 	
@@ -1012,6 +1068,7 @@ workflow {
 	// SNV calling
 	if ( params.analysis.toUpperCase().contains("S") ) {
 
+		// Sample selection using JOIN function
 		SNVCALLING ( bam.join(CHECK_PARAMS.out.samples2analyce) )
 	
 	}
@@ -1042,6 +1099,7 @@ workflow {
 			
 			LOCALVCF (
 				params.input,
+				params.reference_fasta,
 				CHECK_PARAMS.out.samples2analyce )
 
 			vcf = LOCALVCF.out.vcf

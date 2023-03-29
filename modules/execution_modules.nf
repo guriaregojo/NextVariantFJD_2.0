@@ -5,6 +5,7 @@
 
 process BS_CHECK {
 	label "basespace"
+	publishDir "${params.output}/", mode: 'copy'
 
 	input:
 		val project
@@ -16,15 +17,20 @@ process BS_CHECK {
 		path "projects.txt", emit: bsproyects
 		path "controlsamples.txt", emit: controlsamples
 		path "samples2analyce.txt", emit: samples2analyce
+		path "datasets.txt", emit: datasets
 
 	script:
 		def baseuser_config = baseuser ? "--config ${baseuser} " : ''
 		
 		if(samples && analysis.contains("C"))
 			"""
+			# controlsamples: all samples need to be mapped for CNV calling 
+			# samples2analyce: results (SNVs and CNVs) are only reported for the specified sample(s)
+
+			# List all projects in the BaseSpace account
 			bs list projects -f csv -F Name ${baseuser_config} > projects.txt
 
-
+			# Check if the given project exist and if so, get all the sample names
 			if grep -Fq ${project} projects.txt; then
 				bs list biosample --sort-by=BioSampleName -f csv -F BioSampleName \
 				${baseuser_config} --project-name=${project} | sort | uniq > controlsamples.txt    
@@ -33,7 +39,7 @@ process BS_CHECK {
 				exit 1
 			fi
 
-
+			# Check that the specified samples exist inside the project 
 			for sample in \$(cat ${samples}); do
 				if grep -q \${sample} controlsamples.txt; then
 					grep \${sample} controlsamples.txt >> samples2analyce.txt
@@ -42,14 +48,30 @@ process BS_CHECK {
 					exit 1
 				fi
 			done
+
+
+			# Get the datasets id. 
+			# First the last appsession Id is retrieved. 
+			# Appsessions are the analysis done in a project. 
+			# We assume that these are basecalling and that the last one is the correct one.
+			appsession_id=\$(bs list appsession -f csv -F Id --project-name "${project}" | tail -n 1)
+
+			# List all the Output.Datasets (folders containing the reads per sample and per lane) and 
+			# filter to keep the ones containing the pattern *_L* to avoid duplicates.
+			bs appsession property get -i "\${appsession_id}" --property-name="Output.Datasets" -f csv -F Id -F Name | grep "_L" | grep -v "Undetermined" > datasets.txt
 			"""
 
 
 		else if(samples) 
 			"""
+			# controlsamples: only the specifies sammple(s) is(are) mapped 
+			# samples2analyce: results (SNVs) are only reported for the specified sample(s)
+
+			# List all projects in the BaseSpace account
 			bs list projects -f csv -F Name ${baseuser_config} > projects.txt
 
 
+			# Check if the given project exist and if so, get all the sample names
 			if grep -Fq ${project} projects.txt; then
 				bs list biosample --sort-by=BioSampleName -f csv -F BioSampleName \
 				${baseuser_config} --project-name=${project} | sort | uniq > controlsamples.txt    
@@ -58,7 +80,7 @@ process BS_CHECK {
 				exit 1
 			fi
 
-
+			# Check that the specified samples exist inside the project
 			for sample in \$(cat ${samples}); do
 				if grep -q \${sample} controlsamples.txt; then
 					grep \${sample} controlsamples.txt >> samples2analyce.txt
@@ -68,16 +90,31 @@ process BS_CHECK {
 				fi   
 			done
 
-
+			# controlsamples are the same ones as samples2analyce
 			cat samples2analyce.txt > controlsamples.txt
+
+
+			# Get the datasets id. 
+			# First the last appsession Id is retrieved. 
+			# Appsessions are the analysis done in a project. 
+			# We assume that these are basecalling and that the last one is the correct one.
+			appsession_id=\$(bs list appsession -f csv -F Id --project-name "${project}" | tail -n 1)
+
+			# List all the Output.Datasets (folders containing the reads per sample and per lane) and 
+			# filter to keep the ones containing the pattern *_L* to avoid duplicates.
+			bs appsession property get -i "\${appsession_id}" --property-name="Output.Datasets" -f csv -F Id -F Name | grep "_L" | grep -v "Undetermined" > datasets.txt
 			"""
 		
 
 		else 
 			"""
+			# controlsamples: all samples need to be mapped for SNV and CNV calling 
+			# samples2analyce: results (SNVs and CNVs) are reported for all samples
+
+			# List all projects in the BaseSpace account
 			bs list projects -f csv -F Name ${baseuser_config} > projects.txt
 
-
+			# Check if the given project exist and if so, get all the sample names
 			if grep -Fq ${project} projects.txt; then
 				bs list biosample --sort-by=BioSampleName -f csv -F BioSampleName \
 				${baseuser_config} --project-name=${project} | sort | uniq > controlsamples.txt    
@@ -86,7 +123,19 @@ process BS_CHECK {
 				exit 1
 			fi
 
+			# samples2analyce are the same ones as controlsamples
 			cat controlsamples.txt > samples2analyce.txt
+
+
+			# Get the datasets id. 
+			# First the last appsession Id is retrieved. 
+			# Appsessions are the analysis done in a project. 
+			# We assume that these are basecalling and that the last one is the correct one.
+			appsession_id=\$(bs list appsession -f csv -F Id --project-name "${project}" | tail -n 1)
+
+			# List all the Output.Datasets (folders containing the reads per sample and per lane) and 
+			# filter to keep the ones containing the pattern *_L* to avoid duplicates.
+			bs appsession property get -i "\${appsession_id}" --property-name="Output.Datasets" -f csv -F Id -F Name | grep "_L" | grep -v "Undetermined" > datasets.txt
 			"""
 		
 }
@@ -104,6 +153,7 @@ process BS_CHECK {
 
 process LOCAL_CHECK {
 	label "bioinfotools"
+	publishDir "${params.output}/", mode: 'copy'
 
 	input:
 		path input
@@ -126,7 +176,7 @@ process LOCAL_CHECK {
 
 		if(samples && analysis.contains("C"))
 			"""
-			ls ${input} | grep "[${extension_local_check}]\$" -P | sed 's/_.*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
+			ls ${input} | grep "${extension_local_check}\$" -P | sed 's/_.*//' | sed 's/\\..*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
 			
 
 			for sample in \$(cat ${samples}); do
@@ -142,7 +192,7 @@ process LOCAL_CHECK {
 
 		else if(samples) 
 			"""
-			ls ${input} | grep "[${extension_local_check}]\$" -P | sed 's/_.*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
+			ls ${input} | grep "${extension_local_check}\$" -P | sed 's/_.*//' | sed 's/\\..*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
 			
 
 			for sample in \$(cat ${samples}); do
@@ -161,13 +211,49 @@ process LOCAL_CHECK {
 
 		else 
 			"""
-			ls ${input} | grep "${extension_local_check}\$" -P | sed 's/_.*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
+			ls ${input} | grep "${extension_local_check}\$" -P | sed 's/_.*//' | sed 's/\\..*//' | sed 's/${extension_local_check}\$//' -r | sort | uniq > controlsamples.txt
 
 
 			cat controlsamples.txt > samples2analyce.txt
 			"""
 		
 }
+
+
+
+
+// process BS_COPY {
+// 	label "basespace"
+
+// 	publishDir "${params.output}/fastq", mode: 'copy'
+// 	maxRetries 4
+// 	errorStrategy { task.attempt in 4 ? 'retry' : 'ignore' }
+
+
+// 	input:
+// 		val project
+// 		val sample2download
+// 		val baseuser
+
+// 	output:
+// 		tuple \
+// 			val(sample2download_config), \
+// 			path("${sample2download_config}_R1.fastq.gz"), \
+// 			path("${sample2download_config}_R2.fastq.gz"), emit: fastq
+
+// 	script:
+// 		sample2download_config = sample2download[0]
+// 		def baseuser_config = baseuser ? "--config ${baseuser} " : ''
+// 		"""
+// 		echo ${sample2download_config} > ${sample2download_config}.sample.txt
+// 		bs download biosample ${baseuser_config} -q -n "${sample2download_config}" --exclude '*' --include '*.fastq.gz'
+
+
+// 		cat ${sample2download_config}*/*_R1*fastq.gz > ${sample2download_config}_R1.fastq.gz
+// 		cat ${sample2download_config}*/*_R2*fastq.gz > ${sample2download_config}_R2.fastq.gz
+// 		"""
+// }
+
 
 
 
@@ -184,6 +270,7 @@ process BS_COPY {
 		val project
 		val sample2download
 		val baseuser
+		path datasets
 
 	output:
 		tuple \
@@ -195,42 +282,23 @@ process BS_COPY {
 		sample2download_config = sample2download[0]
 		def baseuser_config = baseuser ? "--config ${baseuser} " : ''
 		"""
-		echo ${sample2download_config} > ${sample2download_config}.sample.txt
-		bs download biosample ${baseuser_config} -q -n "${sample2download_config}" --exclude '*' --include '*.fastq.gz'
+		grep "${sample2download_config}" ${datasets} | cut -d "," -f 1 | while read id; do
+		echo "\${id}"
+		bs download dataset -i "\${id}" --extension="fastq.gz"
+		done
 
-
-		cat ${sample2download_config}*/*_R1*fastq.gz > ${sample2download_config}_R1.fastq.gz
-		cat ${sample2download_config}*/*_R2*fastq.gz > ${sample2download_config}_R2.fastq.gz
+		cat *_R1*fastq.gz > ${sample2download_config}_R1.fastq.gz
+		cat *_R2*fastq.gz > ${sample2download_config}_R2.fastq.gz
 		"""
 }
 
 
 
 
-process BS_COPY_PROJECT {
-	label "basespace"
-
-	publishDir "${params.output}/fastq", mode: 'copy'
-	maxRetries 4
-	errorStrategy { task.attempt in 4 ? 'retry' : 'ignore' }
 
 
-	input:
-		val project
-		val baseuser
 
-	output:
-		path("./fastq/"), emit: fastq
 
-	script:
-		def baseuser_config = baseuser ? "--config ${baseuser} " : ''
-		"""
-		bs download project ${baseuser_config} -q -n "${project}" --exclude '*' --include '*.fastq.gz'
-
-		mkdir ./fastq
-		mv */*fastq.gz ./fastq
-		"""
-}
 
 
 
@@ -746,13 +814,12 @@ process MOSDEPTH_JOIN {
 */
 
 process MOSDEPTH_PLOT {
-	label "python"
+	label "bioinfotools"
 	publishDir "${params.output}/qc/", mode: 'copy'
 	errorStrategy 'ignore'
 
 	input:
 		path ""
-		path tasks
 
 	output:
 		path("mosdepth.region.dist.html"), emit: plot
@@ -761,7 +828,7 @@ process MOSDEPTH_PLOT {
 	script:
 		
 		"""
-		python ${tasks}/plot-dist.py *.mosdepth.region.dist.txt -o mosdepth.region.dist.html
+		python ${projectDir}/tasks/plot-dist.py *.mosdepth.region.dist.txt -o mosdepth.region.dist.html
 		"""
 }
 
@@ -884,7 +951,6 @@ process READ_LENGTH_STATS {
 
 	input:
 		tuple val(sample), path(bam), path(bai)
-		path tasks
 
 	output:
 		tuple \
@@ -976,7 +1042,6 @@ process QC_SUMMARY {
 	input:
 		tuple val(sample), path(""), path("${sample}.samtools_flagstat.txt"), path("${sample}.read_lenghts.txt"), path("${sample}.quality.txt"), path("${sample}.CG_AT.txt"), path("${sample}.nreads_nondup_uniq.txt")
 		path bed
-		path tasks
 
 	output:
 		tuple \
@@ -991,7 +1056,7 @@ process QC_SUMMARY {
 		"""
 		nreads_nondup_uniq="\$(cat ${sample}.nreads_nondup_uniq.txt)"
 
-		Rscript ${tasks}/quality_summary.R \\
+		Rscript ${projectDir}/tasks/quality_summary.R \\
 		--samplename ${sample} \\
 		--genomecov_path ${sample}.genomecov.bed \\
 		--quality_path ${sample}.quality.txt \\
@@ -1054,6 +1119,7 @@ process HAPLOTYPECALLER {
 	label "gatk"
 	label "mediumcpu"
 	label "mediummem"
+	errorStrategy 'ignore'
 	// publishDir "${params.output}/", mode: 'copy'
 
 	input:
@@ -1081,7 +1147,7 @@ process HAPLOTYPECALLER {
 		"""
 		${scratch_mkdir}
 
-		gatk --java-options "-Xmx\$((\$(nproc) * 5))g" \
+		gatk --java-options "-Xmx${params.mediummem}g" \
 		HaplotypeCaller ${scratch_field} \
 		-R ${ref} \
 		-I ${bam} \
@@ -1100,6 +1166,7 @@ process SELECT_SNV {
 	label "gatk"	
 	label "mediumcpu"
 	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1138,6 +1205,7 @@ process SELECT_INDEL {
 	label "gatk"
 	label "mediumcpu"
 	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1175,6 +1243,7 @@ process SELECT_MIX {
 	label "gatk"	
 	label "mediumcpu"
 	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1215,6 +1284,7 @@ process FILTRATION_SNV {
 	label "gatk"
 	label "mediumcpu"
 	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1262,6 +1332,7 @@ process FILTRATION_INDEL {
 	label "gatk"
 	label "mediumcpu"
 	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1307,6 +1378,7 @@ process FILTRATION_MIX {
 	label "gatk"
 	label "mediumcpu"
 	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1348,8 +1420,9 @@ process MERGE_VCF {
 	label "gatk"
 	label "mediumcpu"
 	label "mediummem"
-	
+	errorStrategy 'ignore'	
 	//publishDir "${params.output}/snvs", mode: 'copy'
+
 	input:
 		tuple val(sample), path(vcf_snv), path(idx_snv), path(vcf_indel), path(idx_indel), path(vcf_mix), path(idx_mix)
 		path ref
@@ -1382,28 +1455,29 @@ process MERGE_VCF {
 
 
 
-process FILTER_VCF {	
-	label "vep"
-	publishDir "${params.output}/snvs", mode: 'copy'
+// process FILTER_VCF {	
+// 	label "bioinfotools"
+// 	publishDir "${params.output}/snvs", mode: 'copy'
 	
-	input:
-		tuple val(sample), path(vcf_snv), path(idx_snv)
+// 	input:
+// 		tuple val(sample), path(vcf_snv), path(idx_snv)
 		
-	output:
-		tuple \
-			val(sample), \
-			path("${sample}.final.gatk.vcf"), emit: vcf
+// 	output:
+// 		tuple \
+// 			val(sample), \
+// 			path("${sample}.final.gatk.vcf.gz"),
+// 			path("${sample}.final.gatk.vcf.gz.tbi"), emit: vcf
 
-	script:
+// 	script:
 
-		"""
-		filter_vep \
-		-i ${vcf_snv} -o ${sample}.final.gatk.vcf \
-		--filter "(FILTER = PASS) and \
-		(CHROM in chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY)" \
-		--force_overwrite
-		"""
-}
+// 		"""
+// 		bcftools filter -O z -o ${sample}.final.gatk.vcf.gz -i FILTER~"PASS" \
+// 		-r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY \
+// 		${vcf_snv}
+
+// 		tabix -p vcf ${sample}.final.gatk.vcf.gz
+// 		"""
+// }
 
 
 
@@ -1419,6 +1493,7 @@ process DEEPVARIANT {
 	label "deepvariant"	
 	label "highcpu"	
 	label "highmem"	
+	errorStrategy 'ignore'
 	// publishDir "${params.output}/", mode: 'copy'
 
 	input:
@@ -1467,30 +1542,29 @@ process DEEPVARIANT {
 
 
 
-process FILTER_VCF_DEEPVARIANT {	
-	label "vep"
-	publishDir "${params.output}/snvs", mode: 'copy'
+// process FILTER_VCF_DEEPVARIANT {	
+// 	label "bioinfotools"
+// 	publishDir "${params.output}/snvs", mode: 'copy'
 	
-	input:
-		tuple val(sample), path(vcf_snv), path(idx_snv)
+// 	input:
+// 		tuple val(sample), path(vcf_snv), path(idx_snv)
 		
-	output:
-		tuple \
-			val(sample), \
-			path("${sample}.final.deepvariant.vcf"), emit: vcf
+// 	output:
+// 		tuple \
+// 			val(sample), \
+// 			path("${sample}.final.deepvariant.vcf.gz"),
+// 			path("${sample}.final.deepvariant.vcf.gz.tbi"), emit: vcf
 
-	script:
+// 	script:
 
-		"""
+// 		"""
+// 		bcftools filter -O z -o ${sample}.final.deepvariant.vcf.gz -i FILTER~"PASS" \
+// 		-r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY \
+// 		${vcf_snv}
 
-
-		filter_vep \
-		-i ${vcf_snv} -o ${sample}.final.deepvariant.vcf \
-		--filter "(FILTER = PASS) and \
-		(CHROM in chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY)" \
-		--force_overwrite
-		"""
-}
+// 		tabix -p vcf ${sample}.final.deepvariant.vcf.gz
+// 		"""
+// }
 
 
 
@@ -1498,6 +1572,7 @@ process FILTER_VCF_DEEPVARIANT {
 
 process STR_MODEL_DRAGEN {	
 	label "gatk"
+	errorStrategy 'ignore'
 	// publishDir "${params.output}/", mode: 'copy'
 
 	input:
@@ -1534,6 +1609,7 @@ process STR_MODEL_DRAGEN {
 
 process HAPLOTYPECALLER_DRAGEN {	
 	label "gatk"
+	errorStrategy 'ignore'
 	// publishDir "${params.output}/", mode: 'copy'
 
 	input:
@@ -1561,7 +1637,7 @@ process HAPLOTYPECALLER_DRAGEN {
 		"""
 		${scratch_mkdir}
 
-		gatk --java-options "-Xmx\$((\$(nproc) * 5))g" \
+		gatk --java-options "-Xmx${params.mediummem}g" \
 		HaplotypeCaller ${scratch_field} \
 		--dragen-mode \
 		--dragstr-params-path ${str} \
@@ -1577,6 +1653,7 @@ process HAPLOTYPECALLER_DRAGEN {
 
 process FILTRATION_DRAGEN {	
 	label "gatk"
+	errorStrategy 'ignore'
 
 	input:
 		tuple val(sample), path(vcf), path(idx)
@@ -1605,28 +1682,224 @@ process FILTRATION_DRAGEN {
 
 
 
-process FILTER_VCF_DRAGEN {	
-	label "vep"
+// process FILTER_VCF_DRAGEN {	
+// 	label "bioinfotools"
 
-	publishDir "${params.output}/snvs", mode: 'copy'
+// 	publishDir "${params.output}/snvs", mode: 'copy'
+// 	input:
+// 		tuple val(sample), path(vcf_snv), path(idx_snv)
+		
+// 	output:
+// 		tuple \
+// 			val(sample), \
+// 			path("${sample}.final.dragen.vcf.gz"),
+// 			path("${sample}.final.dragen.vcf.gz.tbi"), emit: vcf
+
+// 	script:
+
+// 		"""
+// 		bcftools filter -O z -o ${sample}.final.dragen.vcf.gz -i FILTER~"PASS" \
+// 		-r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY \
+// 		${vcf_snv}
+
+// 		tabix -p vcf ${sample}.final.dragen.vcf.gz
+// 		"""
+// }
+
+
+process FILTER_VCF {	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/individual_callers_snvs", mode: 'copy'
 	input:
 		tuple val(sample), path(vcf_snv), path(idx_snv)
+		val assembly
+		val program
 		
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.final.dragen.vcf"), emit: vcf
+			path("${sample}.${assembly}.${program}.vcf.gz"),
+			path("${sample}.${assembly}.${program}.vcf.gz.tbi"), emit: vcf
 
 	script:
 
 		"""
-		filter_vep \
-		-i ${vcf_snv} -o ${sample}.final.dragen.vcf \
-		--filter "(FILTER = PASS) and \
-		(CHROM in chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY)" \
-		--force_overwrite
+		bcftools view -O z -o tmp.vcf.gz ${vcf_snv} 
+		tabix -p vcf tmp.vcf.gz
+
+		bcftools filter -O z -o ${sample}.${assembly}.${program}.vcf.gz -i 'FILTER~"PASS"' \
+		-r chr1,chr2,chr3,chr4,chr5,chr6,chr7,chr8,chr9,chr10,chr11,chr12,chr13,chr14,chr15,chr16,chr17,chr18,chr19,chr20,chr21,chr22,chrX,chrY \
+		tmp.vcf.gz
+
+		tabix -p vcf ${sample}.${assembly}.${program}.vcf.gz
 		"""
 }
+
+
+
+
+process MERGE_VCF_CALLERS {	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(gatk_vcf), path(gatk_tbi), path(deepvariant_vcf), path(deepvariant_tbi), path(dragen_vcf), path(dragen_tbi)
+		val assembly
+		path ref
+
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		# Add program as sufix to sample names
+		bcftools query -l ${deepvariant_vcf} > samples.deepvariant.txt
+		sed -e 's/\$/.DV/' -i samples.deepvariant.txt
+		bcftools reheader --samples samples.deepvariant.txt -o ${sample}.renamed.deepvariant.vcf.gz ${deepvariant_vcf}
+		tabix -p vcf ${sample}.renamed.deepvariant.vcf.gz
+
+		bcftools query -l ${dragen_vcf} > samples.dragen.txt
+		sed -e 's/\$/.DR/' -i samples.dragen.txt
+		bcftools reheader --samples samples.dragen.txt -o ${sample}.renamed.dragen.vcf.gz ${dragen_vcf}
+		tabix -p vcf ${sample}.renamed.dragen.vcf.gz
+
+		bcftools query -l ${gatk_vcf} > samples.gatk.txt
+		sed -e 's/\$/.GK/' -i samples.gatk.txt
+		bcftools reheader --samples samples.gatk.txt -o ${sample}.renamed.gatk.vcf.gz ${gatk_vcf}
+		tabix -p vcf ${sample}.renamed.gatk.vcf.gz
+
+
+
+		# Split multiallelic reacords as biallelic records and keep only records wth a minimum allele count of 1
+		bcftools norm -m - -c s -f ${ref} ${sample}.renamed.deepvariant.vcf.gz | bcftools view --min-ac=1 -O z -o ${sample}.biallelic.deepvariant.vcf.gz 
+		tabix -p vcf ${sample}.biallelic.deepvariant.vcf.gz
+		bcftools norm -m - -c s -f ${ref} ${sample}.renamed.dragen.vcf.gz | bcftools view --min-ac=1 -O z -o ${sample}.biallelic.dragen.vcf.gz 
+		tabix -p vcf ${sample}.biallelic.dragen.vcf.gz
+		bcftools norm -m - -c s -f ${ref} ${sample}.renamed.gatk.vcf.gz | bcftools view --min-ac=1 -O z -o ${sample}.biallelic.gatk.vcf.gz 
+		tabix -p vcf ${sample}.biallelic.gatk.vcf.gz
+
+
+
+		# Merge VCFs from the 3 programs
+		bcftools merge -O z -o ${sample}.merged.vcf.gz -m none ${sample}.biallelic.deepvariant.vcf.gz ${sample}.biallelic.dragen.vcf.gz ${sample}.biallelic.gatk.vcf.gz
+		tabix -p vcf ${sample}.merged.vcf.gz
+
+
+
+		# Get genotype, depth and variant allele depth
+		bcftools query -f '[\\t%GT]\\n' ${sample}.merged.vcf.gz | sed 's/\\t//1' | sed 's/\\.\\/\\.//g' | sed 's/1\\/0/0\\/1/g' > GT.txt
+		bcftools query -f '[\\t%DP]\\n' ${sample}.merged.vcf.gz | sed 's/\\t//1' | sed 's/\\.//g' > DP.txt
+		bcftools query -f '[\\t%AD{1}]\\n' ${sample}.merged.vcf.gz | sed 's/\\t//1' | sed 's/\\.//g' > VD.txt
+		bcftools query -f '[\\t%AD{0}]\\n' ${sample}.merged.vcf.gz | sed 's/\\t//1' | sed 's/\\.//g' > RD.txt
+
+
+
+		# Calculate the average depth and variant allele depth
+		awk -v OFMT=%.0f '{sum = 0; for (i = 1; i <= NF; i++) sum += \$i; sum /= NF; print sum}' DP.txt > DP_mean.txt
+		awk -v OFMT=%.0f '{sum = 0; for (i = 1; i <= NF; i++) sum += \$i; sum /= NF; print sum}' VD.txt > VD_mean.txt
+		awk -v OFMT=%.0f '{sum = 0; for (i = 1; i <= NF; i++) sum += \$i; sum /= NF; print sum}' RD.txt > RD_mean.txt
+		paste -d, RD_mean.txt VD_mean.txt > AD_mean.txt
+
+		# Get consensus genotype
+		python ${projectDir}/tasks/consensus_GT.py GT.txt GT_consensus.txt GT_discordances.txt
+
+
+		# Calculate variant allele depth (VAD)
+		paste VD_mean.txt DP_mean.txt | awk -v OFMT=%.2f '{print(\$1/\$2)}' > VAF.txt
+
+
+
+
+		# Software information
+		cut -f 1 GT.txt | sed 's/.+/DV/' -r > DV.txt
+		cut -f 2 GT.txt | sed 's/.+/DG/' -r > DG.txt
+		cut -f 3 GT.txt | sed 's/.+/GK/' -r > GK.txt
+
+		paste -d "\\t" DV.txt DG.txt GK.txt | perl -alne 'print join "_", @F' > SF.txt
+
+
+
+		# Create sample information
+		bcftools query -f '[:%GT:%DP:%AD{1}]\\n' ${sample}.merged.vcf.gz > FORMAT_SF.txt
+		paste -d ":" GT_consensus.txt AD_mean.txt DP_mean.txt VAF.txt SF.txt GT_discordances.txt > FORMAT_JOIN.txt
+		paste -d "" FORMAT_JOIN.txt FORMAT_SF.txt > FORMAT_SAMPLE.txt
+		# FORMAT="GT:AD:DP:VAF:SF:GD:DV_GT:DV_DP:DV_VD:DR_GT:DR_DP:DR_VD:GK_GT:GK_DP:GK_VD"
+		bcftools view -H ${sample}.merged.vcf.gz | cut -f 1-8 | sed 's/\$/\\tGT:AD:DP:VAF:SF:GD:DV_GT:DV_DP:DV_VD:DR_GT:DR_DP:DR_VD:GK_GT:GK_DP:GK_VD/' > VCF_CONTENT.txt
+
+
+		bcftools view -h ${sample}.merged.vcf.gz | grep "##" > ${sample}.${assembly}.final.vcf
+
+		echo "##FORMAT=<ID=SF,Number=1,Type=String,Description=\\"Software\\">" >> ${sample}.${assembly}.final.vcf
+		echo "##FORMAT=<ID=GD,Number=1,Type=String,Description=\\"Genotype discordances. 0 same genotype and 1 different genotype\\">" >> ${sample}.${assembly}.final.vcf
+
+		echo "##FORMAT=<ID=DV_GT,Number=1,Type=String,Description=\\"DeepVariant genotype\\">" >> ${sample}.${assembly}.final.vcf
+		echo "##FORMAT=<ID=DV_DP,Number=1,Type=String,Description=\\"DeepVariant depth\\">" >> ${sample}.${assembly}.final.vcf
+		echo "##FORMAT=<ID=DV_VD,Number=1,Type=String,Description=\\"DeepVariant Variant frequency\\">" >> ${sample}.${assembly}.final.vcf
+
+		echo "##FORMAT=<ID=DR_GT,Number=1,Type=String,Description=\\"Dragen genotype\\">" >> ${sample}.${assembly}.final.vcf
+		echo "##FORMAT=<ID=DR_DP,Number=1,Type=String,Description=\\"Dragen depth\\">" >> ${sample}.${assembly}.final.vcf
+		echo "##FORMAT=<ID=DR_VD,Number=1,Type=String,Description=\\"Dragen Variant frequency\\">" >> ${sample}.${assembly}.final.vcf
+
+		echo "##FORMAT=<ID=GK_GT,Number=1,Type=String,Description=\\"GATK genotype\\">" >> ${sample}.${assembly}.final.vcf
+		echo "##FORMAT=<ID=GK_DP,Number=1,Type=String,Description=\\"GATK depth\\">" >> ${sample}.${assembly}.final.vcf
+		echo "##FORMAT=<ID=GK_VD,Number=1,Type=String,Description=\\"GATK Variant frequency\\">" >> ${sample}.${assembly}.final.vcf
+
+		bcftools view -h ${sample}.merged.vcf.gz | tail -n 1 | cut -f 1-10 | sed "s/.DV//" >> ${sample}.${assembly}.final.vcf
+
+		paste -d "\\t" VCF_CONTENT.txt FORMAT_SAMPLE.txt >> ${sample}.${assembly}.final.vcf
+
+
+		bgzip -c ${sample}.${assembly}.final.vcf > ${sample}.${assembly}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+		"""
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1651,21 +1924,25 @@ process LOCALVCF {
 
 	input:
 		path inputdir
+		path ref
 		val sample2analyce
 		
 	output:
 		tuple \
 			val(sample2analyce_config), \
-			path("${sample2analyce_config}.vcf"), emit: vcf
+			path("${sample2analyce_config}.biallelic.vcf.gz"), emit: vcf
 
 	script:
 		sample2analyce_config = sample2analyce[0]
 		"""
 		if [ -f ${inputdir}/${sample2analyce_config}*.vcf.gz ]; then
-			zcat ${inputdir}/${sample2analyce_config}*.vcf.gz > ${sample2analyce_config}.vcf
+			cp ${inputdir}/${sample2analyce_config}*.vcf.gz  ${sample2analyce_config}.vcf.gz
 		else
-			cp ${inputdir}/${sample2analyce_config}*.vcf ${sample2analyce_config}.vcf
+			bgzip -c ${inputdir}/${sample2analyce_config}*.vcf > ${sample2analyce_config}.vcf.gz
 		fi
+		tabix -p vcf ${sample2analyce_config}.vcf.gz
+
+		bcftools norm -m - -c s -f ${ref} ${sample2analyce_config}.vcf.gz | bcftools view --min-ac=1 -O z -o ${sample2analyce_config}.biallelic.vcf.gz 
 		"""
 }
 
@@ -1690,22 +1967,32 @@ process FORMAT2INFO {
 
 	
 	script:
-
+	// GT:AD:DP:VAF:SF:GD:DV_GT:DV_DP:DV_VD:DR_GT:DR_DP:DR_VD:GK_GT:GK_DP:GK_VD
 		"""
+		FORMAT=(GT AD DP VAF SF GD DV_GT DV_DP DV_VD DR_GT DR_DP DR_VD GK_GT GK_DP GK_VD)
+
 		bcftools view -h ${final_vcf} | grep "##" > ${sample}.vcf_to_annotate.vcf
 		echo "##INFO=<ID=variant_id,Number=.,Type=String,Description=\\"variant identification\\">" >> ${sample}.vcf_to_annotate.vcf
 		echo "##INFO=<ID=Original_pos,Number=.,Type=String,Description=\\"original position\\">" >> ${sample}.vcf_to_annotate.vcf
 		for sample in \$(bcftools query -l ${final_vcf})
 		do
-			echo "##INFO=<ID=\${sample}_GT,Number=.,Type=String,Description=\\"\${sample} Genotype\\">" >> ${sample}.vcf_to_annotate.vcf
-			echo "##INFO=<ID=\${sample}_AD,Number=.,Type=String,Description=\\"\${sample} Allelic depths for the ref and alt alleles in the order listed\\">" >> ${sample}.vcf_to_annotate.vcf
-			echo "##INFO=<ID=\${sample}_DP,Number=.,Type=String,Description=\\"\${sample} Approximate read depth (reads with MQ=255 or with bad mates are filtered)\\">" >> ${sample}.vcf_to_annotate.vcf
-			echo "##INFO=<ID=\${sample}_GQ,Number=.,Type=String,Description=\\"\${sample} Genotype Quality\\">" >> ${sample}.vcf_to_annotate.vcf
+
+			for field in \${FORMAT[@]}
+			do
+				echo "##INFO=<ID=\${sample}_\${field},Number=.,Type=String,Description=\\"\${sample} \${field}\\">" >> ${sample}.vcf_to_annotate.vcf
+			done
+
+			# echo "##INFO=<ID=\${sample}_GT,Number=.,Type=String,Description=\\"\${sample} Genotype\\">" >> ${sample}.vcf_to_annotate.vcf
+			# echo "##INFO=<ID=\${sample}_AD,Number=.,Type=String,Description=\\"\${sample} Allelic depths for the ref and alt alleles in the order listed\\">" >> ${sample}.vcf_to_annotate.vcf
+			# echo "##INFO=<ID=\${sample}_DP,Number=.,Type=String,Description=\\"\${sample} Approximate read depth (reads with MQ=255 or with bad mates are filtered)\\">" >> ${sample}.vcf_to_annotate.vcf
+			# echo "##INFO=<ID=\${sample}_GQ,Number=.,Type=String,Description=\\"\${sample} Genotype Quality\\">" >> ${sample}.vcf_to_annotate.vcf
 		done
 		bcftools view -h ${final_vcf} | grep "#CHROM" | cut -f1-8 >> ${sample}.vcf_to_annotate.vcf
 
-
-		bcftools query -f 'variant_id=%CHROM\\_%POS\\_%REF\\_%ALT;Original_pos=%POS;[;%SAMPLE\\_GT=%GT][;%SAMPLE\\_AD=%AD][;%SAMPLE\\_DP=%DP][;%SAMPLE\\_GQ=%GQ]\\n' -u ${final_vcf} | sed 's/;//2' | sed 's/,/_/g' > new_info.txt
+		newfields=""
+		for field in \${FORMAT[@]}; do newfields="\$(echo "\${newfields}[;%SAMPLE\\_\${field}=%\${field}]")"; done
+		bcftools query -f "variant_id=%CHROM\\_%POS\\_%REF\\_%ALT;Original_pos=%POS;\${newfields}\\n" -u ${final_vcf} | sed 's/;//2' | sed 's/,/_/g' > new_info.txt
+		# bcftools query -f 'variant_id=%CHROM\\_%POS\\_%REF\\_%ALT;Original_pos=%POS;[;%SAMPLE\\_GT=%GT][;%SAMPLE\\_AD=%AD][;%SAMPLE\\_DP=%DP][;%SAMPLE\\_GQ=%GQ]\\n' -u ${final_vcf} | sed 's/;//2' | sed 's/,/_/g' > new_info.txt
 		bcftools view -H ${final_vcf} | cut -f1-8 > old_info.txt
 		paste -d ';' old_info.txt new_info.txt >> ${sample}.vcf_to_annotate.vcf
 		
@@ -1719,7 +2006,7 @@ process FORMAT2INFO {
 			fields=",variant_id,Original_pos"
 		fi
 		 
-		for sample in \$(bcftools query -l ${final_vcf}); do fields="\$(echo "\${fields},\${sample}_GT,\${sample}_AD,\${sample}_DP,\${sample}_GQ")"; done
+		for sample in \$(bcftools query -l ${final_vcf}); do for field in \${FORMAT[@]}; do fields="\$(echo "\${fields},\${sample}_\${field}")"; done; done
 		echo \${fields} > ${sample}.fields.txt
 		"""
 }
@@ -1748,38 +2035,32 @@ process AUTOMAP {
 	script:
 		if ( task.attempt == 1 )
 			"""
+
 			if [[ \$(bcftools query -l ${final_vcf} | wc -l) -gt 1 ]]; then
 				for sample in \$(bcftools query -l ${final_vcf}); do
 
 					bcftools view -s \${sample} -O v -o \${sample}.indv.vcf ${final_vcf}
-
-					if [[ \$(bcftools view -H \${sample}.indv.vcf | wc -l) -gt 10000 ]]; then
-						
-						/home/docker/AutoMap/AutoMap_v1.2.sh \\
-						--vcf \${sample}.indv.vcf \\
-						--out . \\
-						--genome ${automap_assembly}
-
-						mv \${sample}/* .
-
-					else
-						echo "Less than 10k variants" > \${sample}_no_automap_HomRegions.txt
-					fi
-				done
-			
-			else
-				if [[ \$(bcftools view -H ${final_vcf} | wc -l) -gt 10000 ]]; then
 					
 					/home/docker/AutoMap/AutoMap_v1.2.sh \\
-					--vcf ${final_vcf} \\
+					--vcf \${sample}.indv.vcf \\
 					--out . \\
 					--genome ${automap_assembly}
 
-					mv */* .
-				
-				else
-					echo "Less than 10k variants" > ${sample}_no_automap_HomRegions.txt
-				fi
+					mv \${sample}/* .
+
+				done
+			
+			else
+					
+				bcftools view -O v -o ${final_vcf}.vcf ${final_vcf}
+
+				/home/docker/AutoMap/AutoMap_v1.2.sh \\
+				--vcf ${final_vcf}.vcf \\
+				--out . \\
+				--genome ${automap_assembly}
+
+				mv */* .
+
 			fi
 			"""
 		else
@@ -1883,7 +2164,7 @@ phyloP30way_mammalian,phastCons30way_mammalian,GERP++_RS,Interpro_domain,GTEx_V8
 		vep \\
 		--cache --offline --dir_cache ${vep_cache} --dir_plugins ${vep_plugins} \\
 		--refseq --species homo_sapiens --assembly ${vep_assembly} --force_overwrite --use_transcript_ref \\
-		--verbose --fork \$(nproc) --tab --format vcf --no_stats \\
+		--verbose --fork ${params.highcpu} --tab --format vcf --no_stats \\
 		--fasta ${vep_fasta} \\
 		--input_file ${final_vcf} \\
 		--output_file ${sample}.${assembly}.vep.tsv \\
@@ -1937,14 +2218,13 @@ process PVM {
 		val maf 
 		path genefilter 
 		path glowgenes 
-		path tasks 
 		val assembly
 
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.${assembly}.pvm.tsv"), \
-			path("${sample}.${assembly}.pvm.tsv.xlsx"), emit: pvm_tsv 
+			path("${sample}.${assembly}.SNV.INDEL.annotated.final.tsv"), \
+			path("${sample}.${assembly}.SNV.INDEL.annotated.final.tsv.xlsx"), emit: pvm_tsv 
 	
 	script:
 	
@@ -1955,9 +2235,9 @@ process PVM {
 		"""
 		header_row="\$(head -n 1000 ${vep_tsv} | grep "#Uploaded_variation" -n | sed 's/:.*//')"
 
-		Rscript ${tasks}/post-VEP_modification.R \\
+		Rscript ${projectDir}/tasks/post-VEP_modification.R \\
 		--input ${vep_tsv} \\
-		--output ${sample}.${assembly}.pvm.tsv \\
+		--output ${sample}.${assembly}.SNV.INDEL.annotated.final.tsv \\
 		--numheader \${header_row} \\
 		--dbNSFPgene ${dbNSFP_gene} \\
 		--regiondict ${regiondict} \\
@@ -1993,7 +2273,7 @@ process PVM {
 
 
 process BEDPROCCESING {
-	label "convading"
+	label "bioinfotools"
 	publishDir "${params.output}/cnvs/", mode: 'copy'
 	
 	input:
@@ -2013,7 +2293,7 @@ process BEDPROCCESING {
 			panel="\$(basename ${bed} .bed)"
 			awk '{if((\$3-\$2)>${min_target} && (\$1=="chrX" || \$1=="X") ){print \$0}}' ${bed} | sort -V -k1,1 -k2,2 > \${panel}.min${min_target}bp.chrx.cnv.bed
 
-			python $tasksPath/CNV_windowSize.py \${panel}.min${min_target}bp.chrx.cnv.bed \${panel}.min${min_target}bp.chrx.cnv.bed_unsorted
+			python ${projectDir}/tasks/CNV_windowSize.py \${panel}.min${min_target}bp.chrx.cnv.bed \${panel}.min${min_target}bp.chrx.cnv.bed_unsorted
 			sort -V -k1,1 -k2,2 \${panel}.min${min_target}bp.chrx.cnv.bed_unsorted | uniq > \${panel}.window125bp.min${min_target}bp.chrx.cnv.bed
 
 			rm \${panel}.min${min_target}bp.chrx.cnv.bed \${panel}.min${min_target}bp.chrx.cnv.bed_unsorted
@@ -2030,7 +2310,7 @@ process BEDPROCCESING {
 			panel="\$(basename ${bed} .bed)"
 			awk '{if((\$3-\$2)>${min_target} && \$1!="MT" && \$1!="chrMT" && \$1!="chrX" && \$1!="chrY" && \$1!="Y" && \$1!="X"){print \$0}}' ${bed} | sort -V -k1,1 -k2,2 > \${panel}.min${min_target}bp.cnv.bed
 
-			python $tasksPath/CNV_windowSize.py \${panel}.min${min_target}bp.cnv.bed \${panel}.min${min_target}bp.cnv.bed_unsorted
+			python ${projectDir}/tasks/CNV_windowSize.py \${panel}.min${min_target}bp.cnv.bed \${panel}.min${min_target}bp.cnv.bed_unsorted
 			sort -V -k1,1 -k2,2 \${panel}.min${min_target}bp.cnv.bed_unsorted | uniq > \${panel}.window125bp.min${min_target}bp.cnv.bed
 
 			rm \${panel}.min${min_target}bp.cnv.bed \${panel}.min${min_target}bp.cnv.bed_unsorted
@@ -2059,7 +2339,6 @@ process EXOMEDEPTH {
 		path("") 
 		path bed
 		val runname 
-		path tasks
 
 	output:
 		tuple \
@@ -2073,7 +2352,7 @@ process EXOMEDEPTH {
 	script:
 		if ( task.attempt == 1 )
 			"""
-			Rscript ${tasks}/exomeDepth.R -d . -o . -b ${bed} -n ${runname}
+			Rscript ${projectDir}/tasks/exomeDepth.R -d . -o . -b ${bed} -n ${runname}
 			"""
 		else
 			"""
@@ -2089,7 +2368,7 @@ process EXOMEDEPTH {
 
 
 process CONVADING {
-	label "convading"
+	label "bioinfotools"
 	publishDir "${params.output}/cnvs/convading", mode: 'copy'
 	errorStrategy 'retry'
 
@@ -2098,7 +2377,6 @@ process CONVADING {
 		path("") 
 		path bed
 		val runname 
-		path tasks
 		path fai
 
 
@@ -2114,7 +2392,7 @@ process CONVADING {
 	script:
 		if ( task.attempt == 1 )
 			"""
-			python ${tasks}/CoNVading_pipeline.py . ${bed} ./ ${runname} ${tasks} ${fai}
+			python ${projectDir}/tasks/CoNVading_pipeline.py . ${bed} ./ ${runname} ${projectDir}/tasks ${fai}
 			"""
 		else
 			"""
@@ -2136,7 +2414,6 @@ process PANELCNMOPS {
 		path("") 
 		path bed
 		val runname 
-		path tasks
 
 	output:
 		tuple \
@@ -2150,7 +2427,7 @@ process PANELCNMOPS {
 	script:
 		if ( task.attempt == 1 )
 			"""
-			Rscript ${tasks}/panelcnMops.R -d . -o . -b ${bed} -n ${runname}
+			Rscript ${projectDir}/tasks/panelcnMops.R -d . -o . -b ${bed} -n ${runname}
 			"""
 		else
 			"""
@@ -2165,10 +2442,10 @@ process PANELCNMOPS {
 process CNV_RESULT_MIXER {
 	label "bioinfotools"
 	publishDir "${params.output}/cnvs", mode: 'copy'
-	
+	errorStrategy 'ignore'
+
 	input:
 		tuple val(runname), path(""), path(""), path("")
-		path tasks
 		path samples2analyce
 
 
@@ -2184,7 +2461,7 @@ process CNV_RESULT_MIXER {
 	script:
 		def samples2analyce_field   = samples2analyce ? "--samples ${samples2analyce} " : ""
 		"""
-		Rscript ${tasks}/CNV_result_mixer2.R \
+		Rscript ${projectDir}/tasks/CNV_result_mixer2.R \
 		--inputdir . \
 		--outputfile ${runname}.CNV.merged.bed \
 		${samples2analyce_field}
@@ -2202,7 +2479,8 @@ process ANNOTSV {
 	label "highcpu"
 	label "highmem"
 	// publishDir "${params.output}/cnvs", mode: 'copy'
-	
+	errorStrategy 'ignore'
+
 	input:
 		tuple val(runname), path(merged_cnv)
 		path genelist
@@ -2241,13 +2519,13 @@ process ANNOTSV {
 process PAM {
 	label "bioinfotools"
 	publishDir "${params.output}/cnvs", mode: 'copy'
+	errorStrategy 'ignore'
 	
 	input:
 		tuple val(runname), path(annotated_cnv)
 		tuple val(runname), path(colnames)
 		path genefilter 
 		path glowgenes
-		path tasks
 
 	output:
 		tuple \
@@ -2259,7 +2537,7 @@ process PAM {
 		def glowgenes_field  = glowgenes  ? "--glowgenes ${glowgenes} " : ''
 
 		"""
-		Rscript ${tasks}/post-AnnotSV_modification.R \\
+		Rscript ${projectDir}/tasks/post-AnnotSV_modification.R \\
 		--input ${annotated_cnv} \\
 		--outputfile ${runname}.CNV.annotated.final.tsv \\
 		--extracolnames ${colnames} \\
@@ -2317,7 +2595,7 @@ process GVCF_HAPLOTYPECALLER {
 		"""
 		${scratch_mkdir}
 
-		gatk --java-options "-Xmx\$((\$(nproc) * 5))g" \
+		gatk --java-options "-Xmx${params.mediummem}g" \
 		HaplotypeCaller ${scratch_field} \
 		-R ${ref} \
 		-I ${bam} \
@@ -2545,17 +2823,17 @@ process MANTA {
 		tuple \
 			val(runname), \
 			path("results/variants/diploidSV.vcf.gz"), 
-			path("results/variants/diploidSV.vcf.gz.tbi"),emit: diploidsv
+			path("results/variants/diploidSV.vcf.gz.tbi"), emit: diploidsv
 
 		tuple \
 			val(runname), \
 			path("results/variants/candidateSV.vcf.gz"), 
-			path("results/variants/candidateSV.vcf.gz.tbi"),emit: candidatesv
+			path("results/variants/candidateSV.vcf.gz.tbi"), emit: candidatesv
 
 		tuple \
 			val(runname), \
 			path("results/variants/candidateSmallIndels.vcf.gz"), 
-			path("results/variants/candidateSmallIndels.vcf.gz.tbi"),emit: candidatesmallindels
+			path("results/variants/candidateSmallIndels.vcf.gz.tbi"), emit: candidatesmallindels
 
 	script:
 		"""
@@ -2610,5 +2888,145 @@ process ANNOTSV_VCF {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+process PREPROCESSINTERVALS {	
+	label "gatk"
+
+	input:
+		path ref
+		// path index
+		// path gzi
+		path bed
+		val runname
+		
+	output:
+		tuple \
+			val(runname), \
+			path("${runname}.preprocessed.interval_list"), emit: interval_list
+
+	script:
+		"""
+		gatk PreprocessIntervals \
+			-R ${ref} \
+			-L ${bed} \
+			--bin-length 0 \
+			-imr OVERLAPPING_ONLY \
+			-O ${runname}.preprocessed.interval_list
+		"""
+}
+
+
+
+
+process COLLECTREADCOUNTS {	
+	label "gatk"
+
+	input:
+		tuple val(sample), path(bam), path(bai)
+		path ref
+		// path index
+		// path gzi
+		path interval_list
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.counts.tsv"), emit: counts
+
+	script:
+		"""
+		gatk CollectReadCounts \
+			-L ${interval_list} \
+			-R ${ref} \
+			-imr OVERLAPPING_ONLY \
+			-I ${bam} \
+			--format TSV \
+			-O ${sample}.counts.tsv
+		"""
+}
+
+
+
+
+
+
+process ANNOTATEINTERVALS {	
+	label "gatk"
+
+	input:
+		path ref
+		// path index
+		// path gzi
+		path interval_list
+		val runname
+		
+	output:
+		tuple \
+			val(runname), \
+			path("${runname}.annotated.mytsv"), emit: annotated_intervals
+
+	script:
+		"""
+		gatk AnnotateIntervals \
+			-L ${interval_list} \
+			-R ${ref} \
+			-imr OVERLAPPING_ONLY \
+			-O ${runname}.annotated.mytsv
+
+		"""
+}
+
+
+process FILTERINTERVALS {
+	label "gatk"
+
+	input:
+		path interval_list
+		path annotated_intervals
+		path("")
+		val runname
+		
+	output:
+		tuple \
+			val(runname), \
+			path("cohort.gc.filtered.interval_list"), emit: filter_intervals
+
+	script:
+		"""
+		tagI=""
+		for count in *.counts.tsv
+		do
+			tagI="\${tagI} -I \${count}"
+		done
+
+
+		gatk FilterIntervals \
+			-L ${interval_list} \
+			--annotated-intervals ${annotated_intervals} \
+			\${tagI}  \
+			-imr OVERLAPPING_ONLY \
+			-O cohort.gc.filtered.interval_list
+
+		"""
+}
 
 

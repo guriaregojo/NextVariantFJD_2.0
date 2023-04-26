@@ -161,6 +161,9 @@ if ((!is.null(genefilter_path)) & (is.null(glowgenes_path))){
 # print("HOLA")
 # save.image(file = 'PVM.RData')
 
+if (nrow(vep) == 0) {
+  stop("There are no remaining variants")
+}
 
 # [1] 54242
 # [1] 54349

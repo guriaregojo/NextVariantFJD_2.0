@@ -92,6 +92,17 @@ include { PAM } from './modules/execution_modules'
 include { MANTA } from './modules/execution_modules'
 include { ANNOTSV_VCF } from './modules/execution_modules'
 
+include { PREPROCESSINTERVALS } from './modules/execution_modules'
+include { COLLECTREADCOUNTS } from './modules/execution_modules'
+include { ANNOTATEINTERVALS } from './modules/execution_modules'
+include { FILTERINTERVALS } from './modules/execution_modules'
+include { INTERVALLISTTOOLS } from './modules/execution_modules'
+include { DETERMINEGERMLINECONTIGPLOIDY } from './modules/execution_modules'
+include { GERMLINECNVCALLER } from './modules/execution_modules'
+include { POSTPROCESSGERMLINECNVCALLS } from './modules/execution_modules'
+include { VCF2BED } from './modules/execution_modules'
+
+
 
 // def final_vcf  = Channel.fromPath(params.final_vcf)
 // def omim       = params.omim       ? Channel.fromPath(params.omim)       : Channel.empty()
@@ -517,7 +528,8 @@ workflow SNVCALLING {
 		MERGE_VCF_CALLERS(
 			FILTER_VCF_GATK.out.vcf.join(FILTER_VCF_DEEPVARIANT.out.vcf).join(FILTER_VCF_DRAGEN.out.vcf),
 			params.assembly,
-			params.reference_fasta )
+			params.reference_fasta,
+			projectDir )
 
 
 
@@ -547,7 +559,8 @@ workflow ANNOTATION {
 
 		AUTOMAP(
 			final_vcf,
-			params.assembly )
+			params.assembly,
+			projectDir )
 
 
 		VEP(
@@ -607,7 +620,8 @@ workflow ANNOTATION {
 			params.maf,
 			params.genelist,
 			params.glowgenes,
-			params.assembly )
+			params.assembly,
+			projectDir )
 
 
 	// emit:
@@ -623,10 +637,11 @@ workflow ANNOTATION {
 
 workflow CNVCALLING {
 	take:
-		bam
-		bai
+		all_bam
+		all_bai
 		runname
 		samples2analyce
+		bam
 
 	main:
 
@@ -636,34 +651,125 @@ workflow CNVCALLING {
 			params.min_target,
 			params.window,
 			params.cnv_chrx,
-			params.fai_convading )
+			params.fai_convading,
+			projectDir )
+
+		// BEDPROCCESING2(
+		// 	params.bed,
+		// 	params.min_target,
+		// 	params.window,
+		// 	params.cnv_chrx,
+		// 	params.fai_convading,
+		// 	// projectDir,
+		// 	params.reference_fasta,
+		// 	params.reference_index,
+		// 	params.reference_dict,
+		// 	params.reference_gzi )
 
 
 		// CNV calling
 		EXOMEDEPTH(
-			bam,
-			bai,
-			BEDPROCCESING.out.bed,
-			runname )
-
-		CONVADING(
-			bam,
-			bai,
+			all_bam,
+			all_bai,
 			BEDPROCCESING.out.bed,
 			runname,
-			params.fai_convading )
+			projectDir )
+
+		CONVADING(
+			all_bam,
+			all_bai,
+			BEDPROCCESING.out.bed,
+			runname,
+			params.fai_convading,
+			projectDir )
 		
 		PANELCNMOPS(
-			bam,
-			bai,
+			all_bam,
+			all_bai,
 			BEDPROCCESING.out.bed,
+			runname,
+			projectDir )
+
+
+		// GATK CNV calling
+		PREPROCESSINTERVALS (
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.bed,
 			runname )
 
 
-		// CNV merge
+		COLLECTREADCOUNTS (
+			bam,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			PREPROCESSINTERVALS.out.interval_list )
+
+
+		ANNOTATEINTERVALS (
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			PREPROCESSINTERVALS.out.interval_list )
+
+		
+		FILTERINTERVALS (
+			PREPROCESSINTERVALS.out.interval_list,
+			ANNOTATEINTERVALS.out.annotated_intervals,
+			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList() )
+
+		
+		INTERVALLISTTOOLS(
+			FILTERINTERVALS.out.filter_intervals )
+
+
+		DETERMINEGERMLINECONTIGPLOIDY(
+			FILTERINTERVALS.out.filter_intervals,
+			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
+			params.contig_ploidy_priors )
+
+
+		GERMLINECNVCALLER(
+			DETERMINEGERMLINECONTIGPLOIDY.out.ploidy_calls,
+			ANNOTATEINTERVALS.out.annotated_intervals,
+			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
+			INTERVALLISTTOOLS.out.scatterout.flatten() )
+
+
+		POSTPROCESSGERMLINECNVCALLS(
+			DETERMINEGERMLINECONTIGPLOIDY.out.ploidy_calls,
+			DETERMINEGERMLINECONTIGPLOIDY.out.sample_index_list.splitCsv(),
+			GERMLINECNVCALLER.out.gcnv_dir.collect().flatten().filter( ~/.*calls$/ ).toList(),
+			GERMLINECNVCALLER.out.gcnv_dir.collect().flatten().filter( ~/.*model$/ ).toList(),
+			params.reference_dict )
+
+
+		VCF2BED(
+			POSTPROCESSGERMLINECNVCALLS.out.cnv_out.collect().flatten().filter( ~/genotyped-intervals.*/ ).toList(),
+			runname )
+
+
+
+
+
+
+
+
+		// // CNV merge
 		CNV_RESULT_MIXER(
-			EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs),
-			samples2analyce )
+			EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs).join(VCF2BED.out.cnvs),
+			samples2analyce,
+			projectDir )
+		
+		// CNV_RESULT_MIXER(
+		// 	EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs),
+		// 	samples2analyce,
+		// 	projectDir )
 
 
 		// CNV ANNOTATION
@@ -677,7 +783,8 @@ workflow CNVCALLING {
 			ANNOTSV.out.annotated_cnv,
 			CNV_RESULT_MIXER.out.colnames,
 			params.genelist,
-			params.glowgenes)
+			params.glowgenes,
+			projectDir )
 
 	// emit:
 
@@ -814,8 +921,10 @@ workflow COMBINEDSNVCALLING {
 		}
 
 
-		FILTER_VCF (
-			vcf2filt )
+		FILTER_VCF_GATK (
+			vcf2filt,
+			params.assembly,
+			"gatk" )
 
 	emit:
 		finalvcf = FILTER_VCF.out.vcf
@@ -842,7 +951,8 @@ workflow QUALITYCHECK {
 			params.bed )
 
 		MOSDEPTH_PLOT(
-			MOSDEPTH.out.mosdepth.collect() )
+			MOSDEPTH.out.mosdepth.collect(),
+			projectDir )
 
 		MOSDEPTH_COV(
 			bam,
@@ -899,7 +1009,8 @@ workflow QUALITYCHECK {
 
 		QC_SUMMARY(
 			GENOMECOV.out.genomecov.join(SAMTOOLS_FLAGSTAT.out.flagstat).join(READ_LENGTH_STATS.out.read_length_stats).join(SEQUENCING_QUALITY_SCORES.out.quality).join(SEQUENCING_CG_AT_CONTENT.out.cg_at).join(NREADS_NONDUP_UNIQ.out.nreads_nondup_uniq),
-			params.bed	)
+			params.bed,
+			projectDir	)
 
 
 		// library_stats = QC_SUMMARY.out.quality_summary.collect().flatten().filter( ~/.*library.stats.txt$/ ).toList()
@@ -943,47 +1054,74 @@ workflow CNVCALLING_WGS {
 
 
 
-// workflow CNVCALLING_WES {
-// 	take:
-// 		bam
-// 		runname
+workflow CNVCALLING_WES {
+	take:
+		bam
+		runname
 	
-// 	main:
+	main:
 
-// 		PREPROCESSINTERVALS (
-// 			params.reference_fasta,
-// 			// params.reference_index,
-// 			// params.reference_gzi,
-// 			params.bed,
-// 			runname )
-
-
-// 		COLLECTREADCOUNTS (
-// 			bam,
-// 			params.reference_fasta,
-// 			// params.reference_index,
-// 			// params.reference_gzi,
-// 			PREPROCESSINTERVALS.out.interval_list )
+		PREPROCESSINTERVALS (
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.bed,
+			runname )
 
 
-// 		ANNOTATEINTERVALS (
-// 			params.reference_fasta,
-// 			// params.reference_index,
-// 			// params.reference_gzi,
-// 			PREPROCESSINTERVALS.out.interval_list,
-// 			runname )
+		COLLECTREADCOUNTS (
+			bam,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			PREPROCESSINTERVALS.out.interval_list )
+
+
+		ANNOTATEINTERVALS (
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			PREPROCESSINTERVALS.out.interval_list )
 
 		
-// 		FILTERINTERVALS (
-// 			PREPROCESSINTERVALS.out.interval_list,
-// 			ANNOTATEINTERVALS.out.annotated_intervals,
-// 			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
-// 			runname )
+		FILTERINTERVALS (
+			PREPROCESSINTERVALS.out.interval_list,
+			ANNOTATEINTERVALS.out.annotated_intervals,
+			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList() )
+
+		
+		INTERVALLISTTOOLS(
+			FILTERINTERVALS.out.filter_intervals )
 
 
-// 	// emit:
+		DETERMINEGERMLINECONTIGPLOIDY(
+			FILTERINTERVALS.out.filter_intervals,
+			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
+			params.contig_ploidy_priors )
 
-// }
+
+		GERMLINECNVCALLER(
+			DETERMINEGERMLINECONTIGPLOIDY.out.ploidy_calls,
+			ANNOTATEINTERVALS.out.annotated_intervals,
+			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
+			INTERVALLISTTOOLS.out.scatterout.flatten() )
+
+
+		POSTPROCESSGERMLINECNVCALLS(
+			DETERMINEGERMLINECONTIGPLOIDY.out.ploidy_calls,
+			DETERMINEGERMLINECONTIGPLOIDY.out.sample_index_list.splitCsv(),
+			GERMLINECNVCALLER.out.gcnv_dir.collect().flatten().filter( ~/.*calls$/ ).toList(),
+			GERMLINECNVCALLER.out.gcnv_dir.collect().flatten().filter( ~/.*model$/ ).toList(),
+			params.reference_dict )
+
+
+
+	// emit:
+
+}
 
 
 
@@ -1119,6 +1257,7 @@ workflow {
 	if ( params.analysis.toUpperCase().contains("C") ) {
 		if ( params.analysis.toUpperCase().contains("M") ) {
 			
+			bam = MAPPING.out.bam			
 			bam_collecteted = MAPPING.out.bam.collect().flatten().filter( ~/.*bam$/ ).toList()
 			bai_collecteted = MAPPING.out.bam.collect().flatten().filter( ~/.*bai$/ ).toList()
 
@@ -1128,6 +1267,7 @@ workflow {
 				params.input,
 				CHECK_PARAMS.out.controlsamples )
 			
+			bam = LOCALBAM_CNV.out.bam
 			bam_collecteted = LOCALBAM_CNV.out.bam.collect().flatten().filter( ~/.*bam$/ ).toList()
 			bai_collecteted = LOCALBAM_CNV.out.bam.collect().flatten().filter( ~/.*bai$/ ).toList()
 
@@ -1141,8 +1281,19 @@ workflow {
 				bam_collecteted,
 				bai_collecteted, 
 				CHECK_PARAMS.out.runname,
-				CHECK_PARAMS.out.samples2analyce_file )
+				CHECK_PARAMS.out.samples2analyce_file,
+				bam )
 		}
+
+
+		if ( params.capture.toUpperCase() == "E" ) {
+
+			// CNV calling and annotation
+			CNVCALLING_WES ( 
+				bam, 
+				CHECK_PARAMS.out.runname )
+		}
+
 
 		if ( params.capture.toUpperCase() == "G" ) {
 

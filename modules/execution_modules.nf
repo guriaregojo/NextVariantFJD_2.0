@@ -262,8 +262,8 @@ process BS_COPY {
 	label "basespace"
 
 	publishDir "${params.output}/fastq", mode: 'copy'
-	maxRetries 4
-	errorStrategy { task.attempt in 4 ? 'retry' : 'ignore' }
+	maxRetries 3
+	errorStrategy { task.attempt <= 3 ? 'retry' : 'ignore' }
 
 
 	input:
@@ -519,6 +519,7 @@ process MARKDUPLICATESSPARK {
 		${scratch_field}
 
 		#chmod 777 \$(find . -user root) 
+		chmod 777 *.dedupped.sorted.bam* .command.trace marked_dup_metrics*
 		"""
 
 
@@ -820,6 +821,7 @@ process MOSDEPTH_PLOT {
 
 	input:
 		path ""
+		path projectDir
 
 	output:
 		path("mosdepth.region.dist.html"), emit: plot
@@ -1042,6 +1044,7 @@ process QC_SUMMARY {
 	input:
 		tuple val(sample), path(""), path("${sample}.samtools_flagstat.txt"), path("${sample}.read_lenghts.txt"), path("${sample}.quality.txt"), path("${sample}.CG_AT.txt"), path("${sample}.nreads_nondup_uniq.txt")
 		path bed
+		path projectDir
 
 	output:
 		tuple \
@@ -1749,6 +1752,7 @@ process MERGE_VCF_CALLERS {
 		tuple val(sample), path(gatk_vcf), path(gatk_tbi), path(deepvariant_vcf), path(deepvariant_tbi), path(dragen_vcf), path(dragen_tbi)
 		val assembly
 		path ref
+		path projectDir
 
 	output:
 		tuple \
@@ -2025,7 +2029,8 @@ process AUTOMAP {
 	input:
 		tuple val(sample), path(final_vcf)
 		val automap_assembly
-		
+		path projectDir
+
 
 	output:
 	tuple \
@@ -2036,17 +2041,19 @@ process AUTOMAP {
 		if ( task.attempt == 1 )
 			"""
 
+			cp -R ${projectDir}/tasks/AutoMap .
+
 			if [[ \$(bcftools query -l ${final_vcf} | wc -l) -gt 1 ]]; then
 				for sample in \$(bcftools query -l ${final_vcf}); do
 
 					bcftools view -s \${sample} -O v -o \${sample}.indv.vcf ${final_vcf}
 					
-					/home/docker/AutoMap/AutoMap_v1.2.sh \\
+					bash ./AutoMap/AutoMap_v1.2.sh \\
 					--vcf \${sample}.indv.vcf \\
 					--out . \\
 					--genome ${automap_assembly}
 
-					mv \${sample}/* .
+					mv \${sample}/*HomRegions* .
 
 				done
 			
@@ -2054,12 +2061,13 @@ process AUTOMAP {
 					
 				bcftools view -O v -o ${final_vcf}.vcf ${final_vcf}
 
-				/home/docker/AutoMap/AutoMap_v1.2.sh \\
+				bash ./AutoMap/AutoMap_v1.2.sh \\
 				--vcf ${final_vcf}.vcf \\
 				--out . \\
 				--genome ${automap_assembly}
 
-				mv */* .
+
+				mv \$(bcftools query -l ${final_vcf})/*HomRegions* .
 
 			fi
 			"""
@@ -2219,6 +2227,7 @@ process PVM {
 		path genefilter 
 		path glowgenes 
 		val assembly
+		path projectDir
 
 	output:
 		tuple \
@@ -2282,6 +2291,7 @@ process BEDPROCCESING {
 		val window
 		val chrx
 		path fai
+		path projectDir
 
 
 	output:
@@ -2329,6 +2339,86 @@ process BEDPROCCESING {
 
 
 
+process BEDPROCCESING2 {
+	label "bioinfotools"
+	publishDir "${params.output}/cnvs/", mode: 'copy'
+	
+	input:
+		path bed
+		val min_target 
+		val window
+		val chrx
+		path fai
+		// path projectDir
+		path ref
+		path index
+		path dict
+		path gzi
+
+
+	output:
+		path("*cnv.bed"), emit: bed 
+	
+	script:
+		if ( chrx && window )
+			"""
+			panel="\$(basename ${bed} .bed)"
+
+			gatk PreprocessIntervals \
+				-R ${ref} \
+				-L ${bed} \
+				--bin-length ${window} \
+				--padding 0 \
+				-imr OVERLAPPING_ONLY \
+				-O \${panel}.interval_list.bed
+
+			grep -v "@" | awk '{if((\$3-\$2)>${min_target} && (\$1=="chrX" || \$1=="X") ){print \$0}}' | sort -V -k1,1 -k2,2 > \${panel}.min${min_target}bp.chrx.cnv.bed
+
+			// python ${projectDir}/tasks/CNV_windowSize.py \${panel}.min${min_target}bp.chrx.cnv.bed \${panel}.min${min_target}bp.chrx.cnv.bed_unsorted
+			sort -V -k1,1 -k2,2 \${panel}.min${min_target}bp.chrx.cnv.bed_unsorted | uniq > \${panel}.window125bp.min${min_target}bp.chrx.cnv.bed
+
+			rm \${panel}.min${min_target}bp.chrx.cnv.bed \${panel}.min${min_target}bp.chrx.cnv.bed_unsorted
+			"""
+
+		else if ( chrx )
+			"""
+			panel="\$(basename ${bed} .bed)"
+			awk '{if((\$3-\$2)>${min_target} && (\$1=="chrX" || \$1=="X") ){print \$0}}' ${bed} | sort -V -k1,1 -k2,2 > \${panel}.min${min_target}bp.chrx.cnv.bed
+			"""
+
+		else if ( window )
+			"""
+			panel="\$(basename ${bed} .bed)"
+			awk '{if((\$3-\$2)>${min_target} && \$1!="MT" && \$1!="chrMT" && \$1!="chrX" && \$1!="chrY" && \$1!="Y" && \$1!="X"){print \$0}}' ${bed} | sort -V -k1,1 -k2,2 > \${panel}.min${min_target}bp.cnv.bed
+
+			// python ${projectDir}/tasks/CNV_windowSize.py \${panel}.min${min_target}bp.cnv.bed \${panel}.min${min_target}bp.cnv.bed_unsorted
+			sort -V -k1,1 -k2,2 \${panel}.min${min_target}bp.cnv.bed_unsorted | uniq > \${panel}.window125bp.min${min_target}bp.cnv.bed
+
+			rm \${panel}.min${min_target}bp.cnv.bed \${panel}.min${min_target}bp.cnv.bed_unsorted
+			"""
+
+		else
+			"""
+			panel="\$(basename ${bed} .bed)"
+			awk '{if((\$3-\$2)>${min_target} && \$1!="MT" && \$1!="chrMT" && \$1!="chrX" && \$1!="chrY" && \$1!="Y" && \$1!="X"){print \$0}}' ${bed} | bedtools sort -g ${fai} -i stdin > \${panel}.min${min_target}bp.cnv.bed
+			"""
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 process EXOMEDEPTH {
 	label "bioinfotools"
 	publishDir "${params.output}/cnvs/exomedepth", mode: 'copy'
@@ -2339,6 +2429,7 @@ process EXOMEDEPTH {
 		path("") 
 		path bed
 		val runname 
+		path projectDir
 
 	output:
 		tuple \
@@ -2378,6 +2469,7 @@ process CONVADING {
 		path bed
 		val runname 
 		path fai
+		path projectDir
 
 
 	output:
@@ -2414,6 +2506,7 @@ process PANELCNMOPS {
 		path("") 
 		path bed
 		val runname 
+		path projectDir
 
 	output:
 		tuple \
@@ -2445,8 +2538,9 @@ process CNV_RESULT_MIXER {
 	errorStrategy 'ignore'
 
 	input:
-		tuple val(runname), path(""), path(""), path("")
+		tuple val(runname), path(""), path(""), path(""), path("")
 		path samples2analyce
+		path projectDir
 
 
 	output:
@@ -2526,6 +2620,7 @@ process PAM {
 		tuple val(runname), path(colnames)
 		path genefilter 
 		path glowgenes
+		path projectDir
 
 	output:
 		tuple \
@@ -2910,11 +3005,15 @@ process ANNOTSV_VCF {
 
 process PREPROCESSINTERVALS {	
 	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		path ref
-		// path index
-		// path gzi
+		path index
+		path dict
+		path gzi
 		path bed
 		val runname
 		
@@ -2939,13 +3038,17 @@ process PREPROCESSINTERVALS {
 
 process COLLECTREADCOUNTS {	
 	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		tuple val(sample), path(bam), path(bai)
 		path ref
-		// path index
-		// path gzi
-		path interval_list
+		path index
+		path dict
+		path gzi
+		tuple val(runname), path(interval_list)
 		
 	output:
 		tuple \
@@ -2971,13 +3074,17 @@ process COLLECTREADCOUNTS {
 
 process ANNOTATEINTERVALS {	
 	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
 		path ref
-		// path index
-		// path gzi
-		path interval_list
-		val runname
+		path index
+		path dict
+		path gzi
+		tuple val(runname), path(interval_list)
+
 		
 	output:
 		tuple \
@@ -2998,12 +3105,14 @@ process ANNOTATEINTERVALS {
 
 process FILTERINTERVALS {
 	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
 
 	input:
-		path interval_list
-		path annotated_intervals
+		tuple val(runname), path(interval_list)
+		tuple val(runname), path(annotated_intervals)
 		path("")
-		val runname
 		
 	output:
 		tuple \
@@ -3030,3 +3139,192 @@ process FILTERINTERVALS {
 }
 
 
+process INTERVALLISTTOOLS {
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
+
+	input:
+		tuple val(runname), path(filter_intervals)
+		
+	output:
+		path("scatter/*"), emit: scatterout
+
+	script:
+		"""
+		mkdir scatter
+
+		gatk IntervalListTools \
+			--INPUT ${filter_intervals} \
+			--SUBDIVISION_MODE INTERVAL_COUNT \
+			--SCATTER_CONTENT 5000 \
+			--OUTPUT ./scatter/
+		"""
+}
+
+
+process DETERMINEGERMLINECONTIGPLOIDY {
+	label "gatk"
+	label "highcpu"
+	label "highmem"
+	errorStrategy 'ignore'
+
+	input:
+		tuple val(runname), path(filter_intervals)
+		path("")
+		path contig_ploidy_priors
+		
+	output:
+		path("ploidy-calls"), emit: ploidy_calls
+		path("ploidy-model"), emit: ploidy_model
+		path("sample_index_list.txt"), emit: sample_index_list
+
+	script:
+		"""
+		tagI=""
+		for count in *.counts.tsv
+		do
+			tagI="\${tagI} -I \${count}"
+		done
+
+		gatk DetermineGermlineContigPloidy \
+			-L ${filter_intervals} \
+			--interval-merging-rule OVERLAPPING_ONLY \
+			\${tagI} \
+			--contig-ploidy-priors ${contig_ploidy_priors} \
+			--output . \
+			--output-prefix ploidy \
+			--verbosity DEBUG
+
+		ls ploidy-calls | sed 's/SAMPLE_//' > sample_index_list.txt
+		"""
+}
+
+
+process GERMLINECNVCALLER {
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
+
+	input:
+		path ploidy_calls
+		tuple val(runname), path(annotated_intervals)
+		path("")
+		path scatterdir
+		
+	output:
+		tuple \
+			val(runname), \
+			path("temp*calls"),
+			path("temp*model"), emit: gcnv_dir
+
+	script:
+		"""
+		tagI=""
+		for count in *.counts.tsv
+		do
+			tagI="\${tagI} -I \${count}"
+		done
+
+		prefix=\$(basename ${scatterdir})
+		mkdir cohort 
+
+		gatk GermlineCNVCaller \
+			--run-mode COHORT \
+			-L ${scatterdir}/scattered.interval_list \
+			\${tagI} \
+			--contig-ploidy-calls ${ploidy_calls} \
+			--annotated-intervals ${annotated_intervals}  \
+			--interval-merging-rule OVERLAPPING_ONLY \
+			--output . \
+			--output-prefix \${prefix} \
+			--verbosity DEBUG
+		"""
+}
+
+
+process POSTPROCESSGERMLINECNVCALLS {
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
+	publishDir "${params.output}/cnvs/gatk", mode: 'copy'
+
+	input:
+		path ploidy_calls
+		val sample_index
+		path("")
+		path("")
+		path dict
+		
+	output:
+		tuple \
+			val(sample_index), \
+			path("genotyped-intervals-cohort90*"), 
+			path("genotyped-segments-cohort90*"),
+			path("*_denoised_copy_ratios.tsv"), emit: cnv_out
+
+	script:
+		n = sample_index[0]
+		"""
+		tagC=""
+		for  file in temp_00*-calls
+		do
+			tagC="\${tagC} --calls-shard-path \${file}"
+		done
+
+
+		tagM=""
+		for  file in temp_00*-model
+		do
+			tagM="\${tagM} --model-shard-path \${file}"
+		done
+
+
+		gatk PostprocessGermlineCNVCalls \
+			\${tagM} \
+			\${tagC} \
+			--allosomal-contig chrX --allosomal-contig chrY \
+			--contig-ploidy-calls ${ploidy_calls} \
+			--sample-index ${n} \
+			--output-genotyped-intervals genotyped-intervals-cohort90-twelve-${n}.vcf.gz \
+			--output-genotyped-segments genotyped-segments-cohort90-${n}.vcf.gz \
+			--sequence-dictionary ${dict} \
+			--output-denoised-copy-ratios sample_${n}_denoised_copy_ratios.tsv \
+			--autosomal-ref-copy-number 2
+
+
+		#bcftools query -l genotyped-intervals-cohort90-twelve-${n}.vcf.gz
+
+		"""
+}
+
+
+
+process VCF2BED {
+	label "bioinfotools"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
+	publishDir "${params.output}/cnvs/gatk", mode: 'copy'
+
+	input:
+		path("")
+		val runname
+		
+	output:
+		tuple \
+			val(runname), \
+			path("gatk.toAnnotate.txt"), emit: cnvs
+
+	script:
+		"""
+		printf "CHR\\tSTART\\tEND\\tCNV_TYPE\\tSAMPLE\\n" > gatk.toAnnotate.txt
+		for vcf in *vcf.gz
+		do
+		bcftools query -e 'ALT="."' -f '%CHROM\\t%POS0\\t%END\\t%ALT\\t[%SAMPLE]\\n' \${vcf} | sed 's/[<>]//g' >> gatk.toAnnotate.txt
+		done
+		"""
+}

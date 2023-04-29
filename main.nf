@@ -691,85 +691,85 @@ workflow CNVCALLING {
 			projectDir )
 
 
-		// GATK CNV calling
-		PREPROCESSINTERVALS (
-			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			params.bed,
-			runname )
+		// // GATK CNV calling
+		// PREPROCESSINTERVALS (
+		// 	params.reference_fasta,
+		// 	params.reference_index,
+		// 	params.reference_dict,
+		// 	params.reference_gzi,
+		// 	params.bed,
+		// 	runname )
 
 
-		COLLECTREADCOUNTS (
-			bam,
-			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			PREPROCESSINTERVALS.out.interval_list )
+		// COLLECTREADCOUNTS (
+		// 	bam,
+		// 	params.reference_fasta,
+		// 	params.reference_index,
+		// 	params.reference_dict,
+		// 	params.reference_gzi,
+		// 	PREPROCESSINTERVALS.out.interval_list )
 
 
-		ANNOTATEINTERVALS (
-			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			PREPROCESSINTERVALS.out.interval_list )
-
-		
-		FILTERINTERVALS (
-			PREPROCESSINTERVALS.out.interval_list,
-			ANNOTATEINTERVALS.out.annotated_intervals,
-			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList() )
+		// ANNOTATEINTERVALS (
+		// 	params.reference_fasta,
+		// 	params.reference_index,
+		// 	params.reference_dict,
+		// 	params.reference_gzi,
+		// 	PREPROCESSINTERVALS.out.interval_list )
 
 		
-		INTERVALLISTTOOLS(
-			FILTERINTERVALS.out.filter_intervals )
+		// FILTERINTERVALS (
+		// 	PREPROCESSINTERVALS.out.interval_list,
+		// 	ANNOTATEINTERVALS.out.annotated_intervals,
+		// 	COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList() )
 
-
-		DETERMINEGERMLINECONTIGPLOIDY(
-			FILTERINTERVALS.out.filter_intervals,
-			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
-			params.contig_ploidy_priors )
-
-
-		GERMLINECNVCALLER(
-			DETERMINEGERMLINECONTIGPLOIDY.out.ploidy_calls,
-			ANNOTATEINTERVALS.out.annotated_intervals,
-			COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
-			INTERVALLISTTOOLS.out.scatterout.flatten() )
-
-
-		POSTPROCESSGERMLINECNVCALLS(
-			DETERMINEGERMLINECONTIGPLOIDY.out.ploidy_calls,
-			DETERMINEGERMLINECONTIGPLOIDY.out.sample_index_list.splitCsv(),
-			GERMLINECNVCALLER.out.gcnv_dir.collect().flatten().filter( ~/.*calls$/ ).toList(),
-			GERMLINECNVCALLER.out.gcnv_dir.collect().flatten().filter( ~/.*model$/ ).toList(),
-			params.reference_dict )
-
-
-		VCF2BED(
-			POSTPROCESSGERMLINECNVCALLS.out.cnv_out.collect().flatten().filter( ~/genotyped-intervals.*/ ).toList(),
-			runname )
-
-
-
-
-
-
-
-
-		// // CNV merge
-		CNV_RESULT_MIXER(
-			EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs).join(VCF2BED.out.cnvs),
-			samples2analyce,
-			projectDir )
 		
+		// INTERVALLISTTOOLS(
+		// 	FILTERINTERVALS.out.filter_intervals )
+
+
+		// DETERMINEGERMLINECONTIGPLOIDY(
+		// 	FILTERINTERVALS.out.filter_intervals,
+		// 	COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
+		// 	params.contig_ploidy_priors )
+
+
+		// GERMLINECNVCALLER(
+		// 	DETERMINEGERMLINECONTIGPLOIDY.out.ploidy_calls,
+		// 	ANNOTATEINTERVALS.out.annotated_intervals,
+		// 	COLLECTREADCOUNTS.out.counts.collect().flatten().filter( ~/.*.counts.tsv$/ ).toList(),
+		// 	INTERVALLISTTOOLS.out.scatterout.flatten() )
+
+
+		// POSTPROCESSGERMLINECNVCALLS(
+		// 	DETERMINEGERMLINECONTIGPLOIDY.out.ploidy_calls,
+		// 	DETERMINEGERMLINECONTIGPLOIDY.out.sample_index_list.splitCsv(),
+		// 	GERMLINECNVCALLER.out.gcnv_dir.collect().flatten().filter( ~/.*calls$/ ).toList(),
+		// 	GERMLINECNVCALLER.out.gcnv_dir.collect().flatten().filter( ~/.*model$/ ).toList(),
+		// 	params.reference_dict )
+
+
+		// VCF2BED(
+		// 	POSTPROCESSGERMLINECNVCALLS.out.cnv_out.collect().flatten().filter( ~/genotyped-intervals.*/ ).toList(),
+		// 	runname )
+
+
+
+
+
+
+
+
+		// // // CNV merge
 		// CNV_RESULT_MIXER(
-		// 	EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs),
+		// 	EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs).join(VCF2BED.out.cnvs),
 		// 	samples2analyce,
 		// 	projectDir )
+		
+		CNV_RESULT_MIXER(
+			EXOMEDEPTH.out.cnvs.join(CONVADING.out.cnvs).join(PANELCNMOPS.out.cnvs),
+			samples2analyce,
+			projectDir )
 
 
 		// CNV ANNOTATION

@@ -2538,7 +2538,7 @@ process CNV_RESULT_MIXER {
 	errorStrategy 'ignore'
 
 	input:
-		/tuple val(runname), path(""), path(""), path(""), path("")
+		/tuple val(runname), path(""), path(""), path(""), path("") /
 		tuple val(runname), path(""), path(""), path("")
 		path samples2analyce
 		path projectDir

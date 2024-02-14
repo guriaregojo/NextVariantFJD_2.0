@@ -52,6 +52,16 @@ include { FILTRATION_DRAGEN } from './modules/execution_modules'
 include { FILTER_VCF as FILTER_VCF_GATK } from './modules/execution_modules'
 include { FILTER_VCF as FILTER_VCF_DEEPVARIANT } from './modules/execution_modules'
 include { FILTER_VCF as FILTER_VCF_DRAGEN } from './modules/execution_modules'
+//GUR: mis nuevos modulos
+include { FINAL_VCF as FINAL_GATK } from './modules/execution_modules'
+include { FINAL_VCF as FINAL_DRAGEN } from './modules/execution_modules'
+include { FINAL_VCF as FINAL_DEEPVARIANT } from './modules/execution_modules'
+///
+
+//include { FINAL_GATK } from './modules/execution_modules' // nuevo proceso GUR
+//include { FINAL_DEEPVARIANT } from './modules/execution_modules' // nuevo proceso GUR
+//include { FINAL_DRAGEN } from './modules/execution_modules' // nuevo proceso GUR
+
 include { MERGE_VCF_CALLERS } from './modules/execution_modules'
 
 include { GVCF_HAPLOTYPECALLER } from './modules/execution_modules'
@@ -231,8 +241,18 @@ workflow CHECK_PARAMS {
 		// m = params.analysis.toUpperCase() =~ /[DMQSGCXAN]/
 		// assert m instanceof Matcher
 		// if ( !m ) {exit 1, "Error: Cannot recognice the any of the specified analisis analysis.\nThe available analysis are: D (Download from BaseSpace), M (Mapping), S (SNV individual), G (SNV GVCF),\nA (SNV annotation), C (CNV calling), N (CNV annotation), X (chrX CNV calling)\n"}
-		if ( !(params.analysis.toUpperCase() =~ /[DMQSGCXAN]/) ) {exit 1, "Error: Cannot recognice the any of the specified analisis analysis.\nThe available analysis are: D (Download from BaseSpace), M (Mapping), S (SNV individual), G (SNV GVCF),\nA (SNV annotation), C (CNV calling), N (CNV annotation), X (chrX CNV calling)\n"}
+		
+		////////////////////////////////////////// GUR: 9 FEBRERO: ESTAS LINEA DE ABAJO ES LA DE GONZALO, YO LA COMENTO Y VOY A HACER LA MIA PARA INCLUIR: K,N,T ///////////////////////////////////
+		//if ( !(params.analysis.toUpperCase() =~ /[DMQSGCXAN]/) ) {exit 1, "Error: Cannot recognice the any of the specified analisis analysis.\nThe available analysis are: D (Download from BaseSpace), M (Mapping), S (SNV individual), G (SNV GVCF),\nA (SNV annotation), C (CNV calling), N (CNV annotation), X (chrX CNV calling)\n"}
+		//println "Analysis type check"
+		///////////////////////////////////////////////// GUR: 9 FEBRERO: FIN LINEAS COMENTARDAS///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+		////////////////////////////////////////////////////////////////// GUR 9 FEBRERO MIS LINEAS PARA INCLUIR K,N,T//////////////////////////////////////////////////////////////////
+		if ( !(params.analysis.toUpperCase() =~ /[DMQSKETGCXAN]/) ) {exit 1, "Error: Cannot recognice the any of the specified analisis analysis.\nThe available analysis are: D (Download from BaseSpace), M (Mapping), S (SNV individual), K (GATK calling),N (DRAGEN calling),T (DEEPVARIANT calling),G (SNV GVCF),\nA (SNV annotation), C (CNV calling), N (CNV annotation), X (chrX CNV calling)\n"}
 		println "Analysis type check"
+		///////////////////////////////////////////////////// GUR: 9 FEBRERO FIN MI PROGRAMA //////////////////////////////////////////////////
+
+
 
 
 
@@ -538,13 +558,162 @@ workflow SNVCALLING {
 		finalvcf = MERGE_VCF_CALLERS.out.vcf
 }
 
+////////////////////////////////////////////////////// START: nuevos workflows GUR 9 febrero 2023 ///////////////////////////////
+
+//nuevo workflow YO -> GAT(K)
+workflow GATKCALLING {
+	take:
+		bam
+	main:
+
+		HAPLOTYPECALLER (
+			bam,
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_SNV (
+			HAPLOTYPECALLER.out.vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_INDEL (
+			HAPLOTYPECALLER.out.vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_MIX (
+			HAPLOTYPECALLER.out.vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTRATION_SNV (
+			SELECT_SNV.out.vcf,
+			params.scratch )
+
+		FILTRATION_INDEL (
+			SELECT_INDEL.out.vcf,
+			params.scratch )
+
+		FILTRATION_MIX (
+			SELECT_MIX.out.vcf,
+			params.scratch )
+
+		MERGE_VCF (
+			FILTRATION_SNV.out.vcf.join(FILTRATION_INDEL.out.vcf).join(FILTRATION_MIX.out.vcf),
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTER_VCF_GATK (
+			MERGE_VCF.out.vcf,
+			params.assembly,
+			"gatk" )
+		
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_GATK(
+			FILTER_VCF_GATK.out.vcf,
+			params.assembly,
+			"gatk" )
+
+	emit:
+		finalvcf = FINAL_GATK.out.vcf
+}
 
 
+//nuevo workflow YO -> DEEPVARIAN(T)
+workflow DEEPVARIANTCALLING {
+	take:
+		bam
+	main:
 
+		DEEPVARIANT (
+			bam,
+			params.bed,
+			params.intervals,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.capture,
+			params.scratch )
 
+		FILTER_VCF_DEEPVARIANT (
+			DEEPVARIANT.out.vcf,
+			params.assembly,
+			"deepvariant" )
 
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_DEEPVARIANT(
+			FILTER_VCF_DEEPVARIANT.out.vcf,
+			params.assembly,
+			"deepvariant" )
+			
+	emit:
+		finalvcf = FINAL_DEEPVARIANT.out.vcf
+}
 
+//nuevo workflow YO -> DRAGE(N)
+workflow DRAGENCALLING {
+	take:
+		bam
+	main:
+		STR_MODEL_DRAGEN(
+			bam,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.reference_str,
+			params.scratch )
 
+		HAPLOTYPECALLER_DRAGEN(
+			bam.join(STR_MODEL_DRAGEN.out.strmodel),
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTRATION_DRAGEN(
+			HAPLOTYPECALLER_DRAGEN.out.vcf,
+			params.scratch )
+
+		FILTER_VCF_DRAGEN(
+			FILTRATION_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_DRAGEN(
+			FILTER_VCF_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+			
+	emit:
+		finalvcf = FINAL_DRAGEN.out.vcf
+}
+
+////////////////////////////////////////////////////// END: nuevos workflows GUR 9 febrero 2023 ///////////////////////////////
 
 workflow ANNOTATION {
 
@@ -1169,8 +1338,9 @@ workflow {
 	
 	}  
 
-
-	if ( params.analysis.toUpperCase() =~ /[QSGCX]/ ){
+	///////////////// GUR 9 FEBRERO: CAMBIO IF COMENTADO POR MI IF PARA AÑADIR LAS OPCIONES K,E,T y que de ellas saque el bam
+	//if ( params.analysis.toUpperCase() =~ /[QSGCX]/ ){
+	if ( params.analysis.toUpperCase() =~ /[QSGCXKET]/ ){
 		
 		if ( params.analysis.toUpperCase().contains("M") ) {
 					
@@ -1211,6 +1381,32 @@ workflow {
 	
 	}
 
+ /////////////////////////////////////////////// GUR 9 FEBRERO: A PARTIR DE AQUI MIS LINEAS ///////////////////////////////////////////////
+		
+		// GATK calling
+	if ( params.analysis.toUpperCase().contains("K") ) {
+
+		// Sample selection using JOIN function
+		GATKCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
+	
+	}
+
+			// DEEPVARIANT calling
+	if ( params.analysis.toUpperCase().contains("T") ) {
+
+		// Sample selection using JOIN function
+		DEEPVARIANTCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
+	
+	}
+
+				// DRAGEN calling
+	if ( params.analysis.toUpperCase().contains("E") ) {
+
+		// Sample selection using JOIN function
+		DRAGENCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
+	
+	}
+ /////////////////////////////////////////////// GUR 9 FEBRERO: FIN MIS LINEAS ///////////////////////////////////////////////
 
 
 
@@ -1227,11 +1423,27 @@ workflow {
 
 
 
+
+
+
+	//////////////////// GUR: en SNV annotation tengo que editar esto para incluir K,E,T (añado else if, si no lo que ocurre es que chace dos checks_ LOCALBAM para el calling y LOCAL VCF para la anotacion y ambos checks los hace a la vez cuando todavia no ha corrido el calling entonces no hay bam, entonces con esto evitamos que compruebe el LOCALVCF cuando corre calling y anotacion)
 	// SNV annotation
 	if ( params.analysis.toUpperCase().contains("A") ) {
 		if ( params.analysis.toUpperCase().contains("S") ) {
 			
 			vcf = SNVCALLING.out.finalvcf
+
+		} else if ( params.analysis.toUpperCase().contains("K") ) {
+			
+			vcf = GATKCALLING.out.finalvcf
+
+		} else if ( params.analysis.toUpperCase().contains("E") ) {
+			
+			vcf = DRAGENCALLING.out.finalvcf
+
+		} else if ( params.analysis.toUpperCase().contains("T") ) {
+			
+			vcf = DEEPVARIANTCALLING.out.finalvcf
 
 		} else {
 			
@@ -1285,7 +1497,7 @@ workflow {
 				bam )
 		}
 
-
+		/////////// GUR: HABRIA QUE CAMBIAR ESTA E PORQUE YO AHORA LA ESTOY USANDO TAMBIEN PARA EL DRAGEN_CALLING, ENTONCES SI PONEMOS INPUT CE A VER SI SE VA A LIAR Y NO SABE QUE TIENE QUE HACER
 		if ( params.capture.toUpperCase() == "E" ) {
 
 			// CNV calling and annotation

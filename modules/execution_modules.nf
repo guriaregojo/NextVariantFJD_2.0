@@ -167,6 +167,9 @@ process LOCAL_CHECK {
 	script:
 		if ( analysis.contains("M") )      { extension_local_check = "(.fq|.fq.gz|.fastq|.fastq.gz)" }
 		else if ( analysis.contains("Q") ) { extension_local_check = "(.bam)" }
+		else if ( analysis.contains("K") ) { extension_local_check = "(.bam)" } 
+		else if ( analysis.contains("T") ) { extension_local_check = "(.bam)" } 
+		else if ( analysis.contains("E") ) { extension_local_check = "(.bam)" } 
 		else if ( analysis.contains("S") ) { extension_local_check = "(.bam)" }
 		else if ( analysis.contains("G") ) { extension_local_check = "(.bam)" }
 		else if ( analysis.contains("C") ) { extension_local_check = "(.bam)" }
@@ -1157,6 +1160,17 @@ process HAPLOTYPECALLER {
 		-O ${sample}.vcf \
 		--annotate-with-num-discovered-alleles true \
 		${intervals_field}
+
+
+		//PARALLELIZED VARIANT CALLING
+		gatk --java-options "-Xmx${params.mediummem}g" \
+		HaplotypeCaller ${scratch_field} \
+		-R ${ref} \
+		-I ${bam} \
+		-O ${sample}.vcf \
+		--annotate-with-num-discovered-alleles true \
+		${intervals_field}
+		//
 		"""
 }
 
@@ -1740,6 +1754,129 @@ process FILTER_VCF {
 		"""
 }
 
+//// GUR: PROCESO NUEVO PARA OBTENER EL VCF FINAL EN LA CARPETA SNVS (EL FINAL VCF)
+process FINAL_VCF {	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(vcf_snv), path(idx_snv)
+		val assembly
+		val program
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+		"""
+}
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////// GUR: PROCESOS NUEVOS FINALES PARA QUE PUEDA USARLO PARA ANOTAR -> se crea la carpeta snvs igual que en el MERGE_VCF_CALLERS Y el mismo .vcf de individual callers pasa a ser el archivo .final.vcf ///////
+
+/*
+process FINAL_GATK{	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(gatk_vcf), path(gatk_tbi)
+		val assembly
+		val program
+
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+		"""
+}
+
+
+process FINAL_DEEPVARIANT{	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(deepvariant_vcf), path(deepvariant_tbi)
+		val assembly
+		val program
+
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+		"""
+}
+
+
+process FINAL_DRAGEN{	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(dragen_vcf), path(dragen_tbi)
+		val assembly
+		val program
+
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+		"""
+}
+*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
@@ -1785,6 +1922,7 @@ process MERGE_VCF_CALLERS {
 
 
 		# Split multiallelic reacords as biallelic records and keep only records wth a minimum allele count of 1
+		#GUR: o sea si tenemos en la misma posicion: G/C, G/T, G/A, G/- -> es decir site multialelico, separarlas en "varias" variantes de la misma posicion y solo quedarnos con las que tienene al menos un caso (Allele Count=1)
 		bcftools norm -m - -c s -f ${ref} ${sample}.renamed.deepvariant.vcf.gz | bcftools view --min-ac=1 -O z -o ${sample}.biallelic.deepvariant.vcf.gz 
 		tabix -p vcf ${sample}.biallelic.deepvariant.vcf.gz
 		bcftools norm -m - -c s -f ${ref} ${sample}.renamed.dragen.vcf.gz | bcftools view --min-ac=1 -O z -o ${sample}.biallelic.dragen.vcf.gz 
@@ -1867,58 +2005,6 @@ process MERGE_VCF_CALLERS {
 		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
 		"""
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

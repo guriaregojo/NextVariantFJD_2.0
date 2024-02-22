@@ -1132,7 +1132,7 @@ process SPLIT_BAM {
 }*/
 
 
-params.chroms = 'chr{X,Y}'
+//params.chroms = 'chr{X,Y}'
 params.chroms = 'chr{{1..22},X,Y}'
 
 process SPLIT_BAM {
@@ -1143,7 +1143,7 @@ process SPLIT_BAM {
     tuple val(sample), path(bam), path(bai)
 
     output:
-    path("parallel_bams/*.bam")
+    path("parallel_bams/*.bam"), emit: parallel_bams
 
     script:
     """
@@ -1180,10 +1180,12 @@ process HAPLOTYPECALLER {
 		path scratch
 		
 	output:
+		path("${my_bam.baseName}.vcf"), emit: vcf
+		path("${my_bam.baseName}.vcf.idx"), emit: vcf_idx
 		//path("parallel_vcfs/*.vcf") - // aqui s
-		tuple \
-			path("${my_bam.baseName}.vcf"), \
-			path("${my_bam.baseName}.vcf.idx"), emit: vcf
+		//tuple \
+		//	path("${my_bam.baseName}.vcf"), \
+		//	path("${my_bam.baseName}.vcf.idx"), emit: vcf
 
 	script:
 		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${my_bam.baseName}_HaplotypeCaller" : ""	
@@ -1208,11 +1210,11 @@ process MERGE_SPLIT_VCF {
 	label "gatk"
 	label "mediumcpu"
 	label "mediummem"
-	errorStrategy 'ignore'	
+	errorStrategy 'ignore'
 	//publishDir "${params.output}/parallel_vcfs", mode: 'copy'
-	tag { my_vcfs }
+	//tag { my_vcfs }
 	input:
-		path my_vcfs, stageAs: "${params.output}/out_parallel_vcfs"
+		path my_vcfs//, stageAs: "${params.output}/out_parallel_vcfs"
 		//path my_vcfs, stageAs: 'parallel_vcfs/*'
 		path ref
 		path index
@@ -1221,27 +1223,26 @@ process MERGE_SPLIT_VCF {
 		path scratch
 		
 	output:
-			tuple \
-			val(sample), \
-			path("${my_vcfs.SimpleName}.vcf"), \
-			path("${my_vcfs.SimpleName}.vcf.idx"), emit: vcf
+		
+		path("merged.vcf"), emit: vcf
+		//path("${my_vcfs.SimpleName}.vcf.idx"), emit: vcf_idx
+			//tuple \
+			//val(sample), \
+			//path("${my_vcfs.SimpleName}.vcf"), \
+			//path("${my_vcfs.SimpleName}.vcf.idx"), emit: vcf
 
 	script:
 		def scratch_field   = scratch ? "--TMP_DIR ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""	
 		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""
 
 		"""
-		${scratch_mkdir}
-		ls ${my_vcfs} > prueba.list
-		ls ${my_vcfs} > prueba2.list
-		gatk MergeVcfs ${scratch_field} \
+		echo ${my_vcfs} | tr ' ' '\n' > vcfs.list
+		gatk MergeVcfs \
 		-R ${ref} \
-		-I prueba.list \
-		-O "${my_vcfs.SimpleName}.all.vcf
+		-I vcfs.list \
+		-O merged.vcf
 		"""
 }
-
-
 
 /*process HAPLOTYPECALLER  {
 	label "gatk"
@@ -1262,7 +1263,8 @@ process MERGE_SPLIT_VCF {
 		path scratch
 
 	output:
-			tuple \
+			tuple \tuple val(sample), path(vcf), path(idx)
+		path ref
 			val(bam_files.SimpleName), \
 			path("${bam_files.SimpleName}.vcf"), \
 			path("${bam_files.SimpleName}.vcf.idx"), emit: vcf
@@ -1273,7 +1275,8 @@ process MERGE_SPLIT_VCF {
 		
 		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${bam_files.SimpleName}_HaplotypeCaller" : ""	
 		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${bam_files.SimpleName}_HaplotypeCaller" : ""
-		def intervals_field = intervals ? "-L ${bed} -ip ${padding}" : ""
+		def intervals_field = intervals ? "-L ${bedtuple val(sample), path(vcf), path(idx)
+		path ref} -ip ${padding}" : ""
 		
 		"""
 		${scratch_mkdir}

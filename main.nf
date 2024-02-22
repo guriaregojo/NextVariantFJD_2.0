@@ -582,15 +582,21 @@ workflow GATKCALLING {
 			params.reference_index,
 			params.reference_dict,
 			params.reference_gzi,
-			params.scratch )
+			params.scratch 
+		)
 			
 		MERGE_SPLIT_VCF (
-			HAPLOTYPECALLER.out,
+			HAPLOTYPECALLER.out.vcf.collect(),
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
 			params.reference_gzi,
-			params.scratch )
+			params.scratch 
+		)
+
+	emit: 
+		split_files = SPLIT_BAM.out.parallel_bams
+		vcfs = HAPLOTYPECALLER.out.vcf
 }
 
 
@@ -1424,6 +1430,8 @@ workflow {
 
 		// Sample selection using JOIN function
 		GATKCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
+		GATKCALLING.out.split_files.view()
+		GATKCALLING.out.vcfs.collect().view()
 	
 	}
 

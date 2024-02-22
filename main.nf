@@ -37,6 +37,10 @@ include { APPLYBQSR } from './modules/execution_modules'
 include { LOCALBAM as LOCALBAM } from './modules/execution_modules'
 include { LOCALBAM as LOCALBAM_CNV } from './modules/execution_modules'
 
+//nuevo modulo GUR: SPLIT_BAM y MERGE_SPLIT_VCF
+include { SPLIT_BAM } from './modules/execution_modules'
+include { MERGE_SPLIT_VCF } from './modules/execution_modules'
+
 include { HAPLOTYPECALLER } from './modules/execution_modules'
 include { SELECT_SNV } from './modules/execution_modules'
 include { SELECT_INDEL } from './modules/execution_modules'
@@ -57,10 +61,6 @@ include { FINAL_VCF as FINAL_GATK } from './modules/execution_modules'
 include { FINAL_VCF as FINAL_DRAGEN } from './modules/execution_modules'
 include { FINAL_VCF as FINAL_DEEPVARIANT } from './modules/execution_modules'
 ///
-
-//include { FINAL_GATK } from './modules/execution_modules' // nuevo proceso GUR
-//include { FINAL_DEEPVARIANT } from './modules/execution_modules' // nuevo proceso GUR
-//include { FINAL_DRAGEN } from './modules/execution_modules' // nuevo proceso GUR
 
 include { MERGE_VCF_CALLERS } from './modules/execution_modules'
 
@@ -429,8 +429,8 @@ workflow SNVCALLING {
 	take:
 		bam
 	main:
-
 		HAPLOTYPECALLER (
+			//bamfiles=Channel.fromPath(params.bam/"*.bam").splitCsv(header: false,sep:',',strip:true).map{T->file(T[0])}.set{bamfiles}
 			bam,
 			params.bed,
 			params.intervals,
@@ -560,11 +560,47 @@ workflow SNVCALLING {
 
 ////////////////////////////////////////////////////// START: nuevos workflows GUR 9 febrero 2023 ///////////////////////////////
 
+
+//nuevo workflow YO -> GAT(K)
+
+
 //nuevo workflow YO -> GAT(K)
 workflow GATKCALLING {
 	take:
 		bam
 	main:
+
+		SPLIT_BAM (
+			bam )
+
+		HAPLOTYPECALLER (
+			SPLIT_BAM.out.flatten(),
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+			
+		MERGE_SPLIT_VCF (
+			HAPLOTYPECALLER.out,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+}
+
+
+//nuevo workflow YO -> GAT(K)
+/*workflow GATKCALLING {
+	take:
+		bam
+	main:
+		SPLIT_BAM (
+			bam)
 
 		HAPLOTYPECALLER (
 			bam,
@@ -634,7 +670,7 @@ workflow GATKCALLING {
 
 	emit:
 		finalvcf = FINAL_GATK.out.vcf
-}
+}*/
 
 
 //nuevo workflow YO -> DEEPVARIAN(T)

@@ -1136,6 +1136,7 @@ process SPLIT_BAM {
 params.chroms = 'chr{{1..22},X,Y}'
 
 process SPLIT_BAM {
+	label "samtools"
 	tag { sample }
 	//publishDir "${params.output}/split_bams", mode: 'copy'
 

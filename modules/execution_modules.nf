@@ -1144,7 +1144,11 @@ process SPLIT_BAM {
     tuple val(sample), path(bam), path(bai)
 
     output:
-    path("parallel_bams/*.bam"), emit: parallel_bams
+		tuple \
+			val(sample), \
+			path("parallel_bams/*.bam"), emit: parallel_bams
+
+    //path("parallel_bams/*.bam"), emit: parallel_bams
 
     script:
     """
@@ -1166,11 +1170,13 @@ process HAPLOTYPECALLER {
 	label "mediummem"
 	errorStrategy 'ignore'
 	//publishDir "${params.output}/", mode: 'copy'
-	publishDir "${params.output}/out_parallel_vcfs/", mode: 'copy'
+	//publishDir "${params.output}/out_parallel_vcfs/", mode: 'copy'
 	tag { my_bam }
 
 	input:
-		path my_bam, stageAs: 'parallel_bams/*'
+		tuple val(sample), path(my_bam, stageAs: 'parallel_bams/*')
+		//tuple val(sample), path(my_bam, stageAs: 'parallel_bams/*')
+		//path my_bam, stageAs: 'parallel_bams/*'
 		path bed
 		val intervals
 		val padding
@@ -1181,12 +1187,12 @@ process HAPLOTYPECALLER {
 		path scratch
 		
 	output:
-		path("${my_bam.baseName}.vcf"), emit: vcf
-		path("${my_bam.baseName}.vcf.idx"), emit: vcf_idx
-		//path("parallel_vcfs/*.vcf") - // aqui s
-		//tuple \
-		//	path("${my_bam.baseName}.vcf"), \
-		//	path("${my_bam.baseName}.vcf.idx"), emit: vcf
+		//path("${my_bam.baseName}.vcf"), emit: vcf
+		//path("${my_bam.baseName}.vcf.idx"), emit: vcf_idx
+		tuple \
+			val(sample), \
+			path("${my_bam.baseName}.vcf.idx"), \
+			path("${my_bam.baseName}.vcf"), emit: vcf
 
 	script:
 		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${my_bam.baseName}_HaplotypeCaller" : ""	
@@ -1213,9 +1219,10 @@ process MERGE_SPLIT_VCF {
 	label "mediummem"
 	errorStrategy 'ignore'
 	//publishDir "${params.output}/parallel_vcfs", mode: 'copy'
-	//tag { my_vcfs }
 	input:
-		path my_vcfs//, stageAs: "${params.output}/out_parallel_vcfs"
+		//path my_vcfs
+		tuple val(sample), path(my_vcfs)
+		//, stageAs: "${params.output}/out_parallel_vcfs"
 		//path my_vcfs, stageAs: 'parallel_vcfs/*'
 		path ref
 		path index
@@ -1225,12 +1232,13 @@ process MERGE_SPLIT_VCF {
 		
 	output:
 		
-		path("merged.vcf"), emit: vcf
+		//path("merged.vcf"), emit: vcf
+		tuple \
+			val(sample), \
+			path("${sample}.merged.vcf.idx"), \
+			path("${sample}.merged.vcf"), emit: vcf
 		//path("${my_vcfs.SimpleName}.vcf.idx"), emit: vcf_idx
-			//tuple \
-			//val(sample), \
-			//path("${my_vcfs.SimpleName}.vcf"), \
-			//path("${my_vcfs.SimpleName}.vcf.idx"), emit: vcf
+
 
 	script:
 		def scratch_field   = scratch ? "--TMP_DIR ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""	
@@ -1238,64 +1246,13 @@ process MERGE_SPLIT_VCF {
 
 		"""
 		echo ${my_vcfs} | tr ' ' '\n' > vcfs.list
+		echo ${my_vcfs} | tr ' ' '\n' > vcfs2.list
 		gatk MergeVcfs \
 		-R ${ref} \
 		-I vcfs.list \
-		-O merged.vcf
+		-O "${sample}.merged.vcf"
 		"""
 }
-
-/*process HAPLOTYPECALLER  {
-	label "gatk"
-	label "mediumcpu"
-	label "mediummem"
-	errorStrategy 'ignore'
-	// publishDir "${params.output}/", mode: 'copy'
-
-	input:
-		tuple val(bam_files.SimpleName), path(bam_files),path(bai_files)
-		path bed
-		val intervals
-		val padding
-		path ref
-		path index
-		path dict
-		path reference_gzi
-		path scratch
-
-	output:
-			tuple \tuple val(sample), path(vcf), path(idx)
-		path ref
-			val(bam_files.SimpleName), \
-			path("${bam_files.SimpleName}.vcf"), \
-			path("${bam_files.SimpleName}.vcf.idx"), emit: vcf
-
-	script:
-	     //https://www.nextflow.io/docs/latest/script.html
-		 //gatk --java-options " -Xmx${task.memory.giga}g -Djava.io.tmpdir=." HaplotypeCaller ${scratch_field} \
-		
-		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${bam_files.SimpleName}_HaplotypeCaller" : ""	
-		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${bam_files.SimpleName}_HaplotypeCaller" : ""
-		def intervals_field = intervals ? "-L ${bedtuple val(sample), path(vcf), path(idx)
-		path ref} -ip ${padding}" : ""
-		
-		"""
-		${scratch_mkdir}
-
-		gatk --java-options "-Xmx${params.mediummem}g" \
-		HaplotypeCaller ${scratch_field} \
-		-R ${ref} \
-		-I ${bam_files} \
-		-O ${bam_files.SimpleName}.vcf \
-		--annotate-with-num-discovered-alleles true \
-		${intervals_field}
-		"""
-}*/
-
-
-
-
-
 
 
 
@@ -1592,6 +1549,7 @@ process MERGE_VCF {
 
 
 
+
 // process FILTER_VCF {	
 // 	label "bioinfotools"
 // 	publishDir "${params.output}/snvs", mode: 'copy'
@@ -1881,25 +1839,20 @@ process FINAL_VCF {
 
 	publishDir "${params.output}/snvs", mode: 'copy'
 	input:
-		tuple val(sample), path(vcf_snv), path(idx_snv)
+		tuple path(vcf_snv), path(idx_snv)
 		val assembly
 		val program
 		
 	output:
-		tuple \
-			val(sample), \
-			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
-
-		tuple \
-			val(sample), \
-			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+			path("${assembly}.final.vcf.gz"), emit: vcf
+			path("${assembly}.final.vcf.gz.tbi"), emit: index
 
 	script:
 
 		"""
 		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
-	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.final.vcf.gz
-		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+	    cp ${assembly}.${program}.vcf.gz ${assembly}.final.vcf.gz
+		tabix -p vcf ${assembly}.final.vcf.gz
 		"""
 }
 

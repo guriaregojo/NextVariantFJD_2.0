@@ -574,7 +574,7 @@ workflow GATKCALLING {
 			bam )
 
 		HAPLOTYPECALLER (
-			SPLIT_BAM.out.flatten(),
+			SPLIT_BAM.out.transpose(),
 			params.bed,
 			params.intervals,
 			params.padding,
@@ -584,43 +584,19 @@ workflow GATKCALLING {
 			params.reference_gzi,
 			params.scratch 
 		)
-			
+		HAPLOTYPECALLER.out.vcf.groupTuple().view()
 		MERGE_SPLIT_VCF (
-			HAPLOTYPECALLER.out.vcf.collect(),
+			//HAPLOTYPECALLER.out.vcf.collect(),
+			HAPLOTYPECALLER.out.vcf.groupTuple(),
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
 			params.reference_gzi,
 			params.scratch 
 		)
-
-	emit: 
-		split_files = SPLIT_BAM.out.parallel_bams
-		vcfs = HAPLOTYPECALLER.out.vcf
-}
-
-
-//nuevo workflow YO -> GAT(K)
-/*workflow GATKCALLING {
-	take:
-		bam
-	main:
-		SPLIT_BAM (
-			bam)
-
-		HAPLOTYPECALLER (
-			bam,
-			params.bed,
-			params.intervals,
-			params.padding,
-			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			params.scratch )
 
 		SELECT_SNV (
-			HAPLOTYPECALLER.out.vcf,
+			MERGE_SPLIT_VCF.out.vcf,
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
@@ -628,7 +604,7 @@ workflow GATKCALLING {
 			params.scratch )
 
 		SELECT_INDEL (
-			HAPLOTYPECALLER.out.vcf,
+			MERGE_SPLIT_VCF.out.vcf,
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
@@ -636,7 +612,7 @@ workflow GATKCALLING {
 			params.scratch )
 
 		SELECT_MIX (
-			HAPLOTYPECALLER.out.vcf,
+			MERGE_SPLIT_VCF.out.vcf,
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
@@ -676,7 +652,7 @@ workflow GATKCALLING {
 
 	emit:
 		finalvcf = FINAL_GATK.out.vcf
-}*/
+}
 
 
 //nuevo workflow YO -> DEEPVARIAN(T)
@@ -1430,8 +1406,8 @@ workflow {
 
 		// Sample selection using JOIN function
 		GATKCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
-		GATKCALLING.out.split_files.view()
-		GATKCALLING.out.vcfs.collect().view()
+		//yoli: GATKCALLING.out.split_files.view()
+		//yoli: GATKCALLING.out.vcfs.collect().view()
 	
 	}
 

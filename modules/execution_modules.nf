@@ -1171,12 +1171,12 @@ process HAPLOTYPECALLER {
 	errorStrategy 'ignore'
 	//publishDir "${params.output}/", mode: 'copy'
 	//publishDir "${params.output}/out_parallel_vcfs/", mode: 'copy'
-	tag { my_bam }
+	tag { bam }
 
 	input:
-		tuple val(sample), path(my_bam, stageAs: 'parallel_bams/*')
-		//tuple val(sample), path(my_bam, stageAs: 'parallel_bams/*')
-		//path my_bam, stageAs: 'parallel_bams/*'
+		tuple val(sample), path(bam, stageAs: 'parallel_bams/*')
+		//tuple val(sample), path(bam, stageAs: 'parallel_bams/*')
+		//path bam, stageAs: 'parallel_bams/*'
 		path bed
 		val intervals
 		val padding
@@ -1187,16 +1187,18 @@ process HAPLOTYPECALLER {
 		path scratch
 		
 	output:
-		//path("${my_bam.baseName}.vcf"), emit: vcf
-		//path("${my_bam.baseName}.vcf.idx"), emit: vcf_idx
+		//path("${bam.baseName}.vcf"), emit: vcf
+		//path("${bam.baseName}.vcf.idx"), emit: vcf_idx
 		tuple \
 			val(sample), \
-			path("${my_bam.baseName}.vcf.idx"), \
-			path("${my_bam.baseName}.vcf"), emit: vcf
+			path("${bam.baseName}.vcf.idx"), emit: vcf_idx
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.vcf"), emit: vcf
 
 	script:
-		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${my_bam.baseName}_HaplotypeCaller" : ""	
-		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${my_bam.baseName}_HaplotypeCaller" : ""
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${bam.baseName}_HaplotypeCaller" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${bam.baseName}_HaplotypeCaller" : ""
 		def intervals_field = intervals ? "-L ${bed} -ip ${padding}" : ""
 
 		"""
@@ -1205,8 +1207,8 @@ process HAPLOTYPECALLER {
 		gatk --java-options "-Xmx${params.mediummem}g" \
 		HaplotypeCaller ${scratch_field} \
 		-R ${ref} \
-		-I ${my_bam} \
-		-O "${my_bam.baseName}.vcf" \
+		-I ${bam} \
+		-O "${bam.baseName}.vcf" \
 		--annotate-with-num-discovered-alleles true \
 		${intervals_field}
 		"""
@@ -1235,8 +1237,8 @@ process MERGE_SPLIT_VCF {
 		//path("merged.vcf"), emit: vcf
 		tuple \
 			val(sample), \
-			path("${sample}.merged.vcf.idx"), \
-			path("${sample}.merged.vcf"), emit: vcf
+			path("${sample}.vcf"), \
+			path("${sample}.vcf.idx"), emit: vcf
 		//path("${my_vcfs.SimpleName}.vcf.idx"), emit: vcf_idx
 
 
@@ -1246,11 +1248,10 @@ process MERGE_SPLIT_VCF {
 
 		"""
 		echo ${my_vcfs} | tr ' ' '\n' > vcfs.list
-		echo ${my_vcfs} | tr ' ' '\n' > vcfs2.list
 		gatk MergeVcfs \
 		-R ${ref} \
 		-I vcfs.list \
-		-O "${sample}.merged.vcf"
+		-O "${sample}.vcf"
 		"""
 }
 
@@ -1282,7 +1283,7 @@ process SELECT_SNV {
 
 		"""
 		${scratch_mkdir}
-
+		echo
 		gatk SelectVariants ${scratch_field} \
 		-R ${ref} \
 		-V ${vcf} \
@@ -1577,22 +1578,17 @@ process MERGE_VCF {
 
 
 
-
-
-
-
-
-
-
 process DEEPVARIANT {
 	label "deepvariant"	
 	label "highcpu"	
 	label "highmem"	
 	errorStrategy 'ignore'
 	// publishDir "${params.output}/", mode: 'copy'
+	tag { bam }
 
 	input:
-		tuple val(sample), path(bam), path(bai)
+		//tuple val(sample), path(bam), path(bai)
+		tuple val(sample), path(bam, stageAs: 'parallel_bams/*')
 		path bed
 		val intervals
 		path ref
@@ -1606,29 +1602,35 @@ process DEEPVARIANT {
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}.deepvariantLabeled.vcf.gz"), \
-			path("${sample}.deepvariantLabeled.vcf.gz.tbi"), emit: vcf
+			path("${bam.baseName}.deepvariantLabeled.vcf.gz.tbi"), emit: vcf_tbi
 
 		tuple \
 			val(sample), \
-			path("${sample}.deepvariantLabeled.gvcf.gz"), \
-			path("${sample}.deepvariantLabeled.gvcf.gz.tbi"), emit: gvcf
+			path("${bam.baseName}.deepvariantLabeled.gvcf.gz.tbi"), emit: gvcf_tbi
+
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.deepvariantLabeled.vcf.gz"),emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.deepvariantLabeled.gvcf.gz"), emit: gvcf
 
 	script:
 		def capture_field   = capture != "G" ? "WES" : "WGS"
 		def intervals_field = intervals ? "--regions ${bed}" : ""
-		def scratch_field   = scratch ? "--intermediate_results_dir ${scratch}/${sample}_deepvariant" : ""	
-		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_deepvariant" : ""
+		def scratch_field   = scratch ? "--intermediate_results_dir ${scratch}/${bam.baseName}_deepvariant" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${bam.baseName}_deepvariant" : ""
 
 		"""
 		${scratch_mkdir}
-
+		mkdir parallel_vcfs
 		run_deepvariant ${scratch_field} \
 		--model_type=${capture_field} \
 		--ref=${ref} \
 		--reads=${bam} \
-		--output_vcf=${sample}.deepvariantLabeled.vcf.gz \
-		--output_gvcf=${sample}.deepvariantLabeled.gvcf.gz \
+		--output_vcf=${bam.baseName}.deepvariantLabeled.vcf.gz \
+		--output_gvcf=${bam.baseName}.deepvariantLabeled.gvcf.gz \
 		--num_shards=\$(nproc) \
 		${intervals_field} \
 		"""
@@ -1661,6 +1663,52 @@ process DEEPVARIANT {
 // 		"""
 // }
 
+
+///// MI PROCESO MIX DRAGEN: (STR + haplotype caller)
+process MIX_DRAGEN {	
+	label "gatk"
+	errorStrategy 'ignore'
+	// publishDir "${params.output}/", mode: 'copy'
+
+	input:
+		tuple val(sample), path(bam), path(bai)
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		path reference_str
+		path scratch
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}_dragstr_model.txt"), emit: strmodel
+
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_mixmodeldragen" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_mixmodeldragen" : ""
+
+		"""
+		${scratch_mkdir}
+
+		gatk CalibrateDragstrModel ${scratch_field} \
+    	-R ${ref} \
+    	-I ${bam} \
+    	-str ${reference_str} \
+    	-O ${sample}_dragstr_model.txt
+
+		gatk --java-options "-Xmx${params.mediummem}g" \
+		HaplotypeCaller ${scratch_field} \
+		--dragen-mode \
+		--dragstr-params-path ${str} \
+		-R ${ref} \
+		-I ${bam} \
+		-O ${sample}.vcf \
+		--annotate-with-num-discovered-alleles true \
+		${intervals_field}
+
+		"""
+}
 
 
 
@@ -1839,20 +1887,26 @@ process FINAL_VCF {
 
 	publishDir "${params.output}/snvs", mode: 'copy'
 	input:
-		tuple path(vcf_snv), path(idx_snv)
+		tuple val(sample), path(vcf_snv), path(idx_snv)
+		//tuple path(vcf_snv), path(idx_snv)
 		val assembly
 		val program
 		
 	output:
-			path("${assembly}.final.vcf.gz"), emit: vcf
-			path("${assembly}.final.vcf.gz.tbi"), emit: index
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.${program}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.${program}.final.vcf.gz.tbi"), emit: index
 
 	script:
 
 		"""
 		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
-	    cp ${assembly}.${program}.vcf.gz ${assembly}.final.vcf.gz
-		tabix -p vcf ${assembly}.final.vcf.gz
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.${program}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.${program}.final.vcf.gz
 		"""
 }
 

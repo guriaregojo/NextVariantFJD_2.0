@@ -584,9 +584,7 @@ workflow GATKCALLING {
 			params.reference_gzi,
 			params.scratch 
 		)
-		HAPLOTYPECALLER.out.vcf.groupTuple().view()
 		MERGE_SPLIT_VCF (
-			//HAPLOTYPECALLER.out.vcf.collect(),
 			HAPLOTYPECALLER.out.vcf.groupTuple(),
 			params.reference_fasta,
 			params.reference_index,
@@ -594,7 +592,7 @@ workflow GATKCALLING {
 			params.reference_gzi,
 			params.scratch 
 		)
-
+		MERGE_SPLIT_VCF.out.vcf.view()
 		SELECT_SNV (
 			MERGE_SPLIT_VCF.out.vcf,
 			params.reference_fasta,
@@ -661,8 +659,11 @@ workflow DEEPVARIANTCALLING {
 		bam
 	main:
 
+		SPLIT_BAM (
+			bam )
+
 		DEEPVARIANT (
-			bam,
+			SPLIT_BAM.out.transpose(),
 			params.bed,
 			params.intervals,
 			params.reference_fasta,
@@ -671,9 +672,18 @@ workflow DEEPVARIANTCALLING {
 			params.reference_gzi,
 			params.capture,
 			params.scratch )
+		
+		MERGE_SPLIT_VCF (
+			DEEPVARIANT.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch 
+		)
 
 		FILTER_VCF_DEEPVARIANT (
-			DEEPVARIANT.out.vcf,
+			MERGE_SPLIT_VCF.out.vcf,
 			params.assembly,
 			"deepvariant" )
 
@@ -692,7 +702,21 @@ workflow DRAGENCALLING {
 	take:
 		bam
 	main:
-		STR_MODEL_DRAGEN(
+
+		HAPLOTYPECALLER_DRAGEN(
+			bam.join(STR_MODEL_DRAGEN.out.strmodel),
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+
+
+		/*STR_MODEL_DRAGEN(
 			bam,
 			params.reference_fasta,
 			params.reference_index,
@@ -714,7 +738,7 @@ workflow DRAGENCALLING {
 
 		FILTRATION_DRAGEN(
 			HAPLOTYPECALLER_DRAGEN.out.vcf,
-			params.scratch )
+			params.scratch )*/
 
 		FILTER_VCF_DRAGEN(
 			FILTRATION_DRAGEN.out.vcf,

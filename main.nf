@@ -26,6 +26,7 @@ include { BS_CHECK } from './modules/execution_modules'
 include { LOCAL_CHECK } from './modules/execution_modules'
 include { BS_COPY } from './modules/execution_modules'
 include { FASTQ_CONCATENATION } from './modules/execution_modules'
+include { FASTP } from './modules/execution_modules'
 include { BWA } from './modules/execution_modules'
 include { FASTQTOSAM } from './modules/execution_modules'
 include { MERGEBAMALIGNMENT } from './modules/execution_modules'
@@ -34,6 +35,7 @@ include { SORTSAM } from './modules/execution_modules'
 include { SETTAGS } from './modules/execution_modules'
 include { BASERECALIBRATOR } from './modules/execution_modules'
 include { APPLYBQSR } from './modules/execution_modules'
+include { MERGEBAM } from './modules/execution_modules'
 include { LOCALBAM as LOCALBAM } from './modules/execution_modules'
 include { LOCALBAM as LOCALBAM_CNV } from './modules/execution_modules'
 
@@ -321,8 +323,26 @@ workflow MAPPING {
 
 	main:
 
+		FASTP (
+            fastq)
+
+		fastq_split=FASTP.out.reads
+		//.map { sample, file -> [ file.getName().split('.')[0], file ] 
+		.map{ sample, file -> file }
+		.collect()
+		.flatten()
+		//.fromFilePairs()
+		//.map { file -> [ file.getParent(), file ]}
+		//.map { file -> [ fromFilePairs("${file.getParent()}/*R{1,2}.fastp.fastq.gz") ]}
+		.map { file -> [ file.getName().split('_')[0], file ] }
+		.groupTuple()
+		//.map{sample, file -> [sample.split('\\.')[1], file]} // con esto le puedo quitar el 0001 y solo dejarle el sample name. 
+		.flatten()
+		.collate(3)
+		//.view(),
+
 		BWA (
-			fastq,
+			fastq_split,
 			params.reference_fasta,
 			params.bwa_amb,
 			params.bwa_ann,
@@ -331,7 +351,7 @@ workflow MAPPING {
 			params.bwa_sa )
 
 		FASTQTOSAM (
-			fastq,
+			fastq_split,
 			params.scratch )
 
 		
@@ -394,9 +414,27 @@ workflow MAPPING {
 			params.scratch,
 			params.assembly )
 
+		//APPLYBQSR.out.bam.view()
+
+		bamstomerge= APPLYBQSR.out.bam
+		.map{sample, bam, bai -> [sample.split('\\.')[1], bam]} // con esto le puedo quitar el 0001 y solo dejarle el sample name. 
+		.groupTuple()
+		//.view()
+
+		bamstomerge.view()
+		
+
+		MERGEBAM(
+			bamstomerge,
+			params.assembly
+			)
+
+		MERGEBAM.out.bam.view()
 
 	emit:
 		bam = APPLYBQSR.out.bam
+
+	
 
 }
 

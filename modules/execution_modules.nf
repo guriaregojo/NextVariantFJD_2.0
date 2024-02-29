@@ -343,6 +343,7 @@ process FASTQ_CONCATENATION {
 
 		
 process FASTP {
+	label 'fastp'
     label 'process_high'
 
     input:
@@ -725,7 +726,7 @@ process APPLYBQSR {
 }
 
 process MERGEBAM{
-
+	label "samtools"
 
 	input:
 		tuple val(sample), path(bam)

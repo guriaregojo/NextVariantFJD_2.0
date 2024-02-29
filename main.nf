@@ -39,7 +39,12 @@ include { LOCALBAM as LOCALBAM_CNV } from './modules/execution_modules'
 
 //nuevo modulo GUR: SPLIT_BAM y MERGE_SPLIT_VCF
 include { SPLIT_BAM } from './modules/execution_modules'
-include { MERGE_SPLIT_VCF } from './modules/execution_modules'
+
+////GUR: nuevos modulos merge vcfs por cromosomas de cada programa
+include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_GATK} from './modules/execution_modules'
+include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_DEEPVARIANT } from './modules/execution_modules'
+include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_DRAGEN } from './modules/execution_modules'
+
 
 include { HAPLOTYPECALLER } from './modules/execution_modules'
 include { SELECT_SNV } from './modules/execution_modules'
@@ -50,8 +55,12 @@ include { FILTRATION_INDEL } from './modules/execution_modules'
 include { FILTRATION_MIX } from './modules/execution_modules'
 include { MERGE_VCF } from './modules/execution_modules'
 include { DEEPVARIANT } from './modules/execution_modules'
+// nuevo módulo GUR MIX_DRAGEN: tiene los dos pasos de DRAGEN en 1: STR_MODEL + HAPLOTYPE_CALLER DRAGEN 
+include { COMPLETE_DRAGEN } from './modules/execution_modules'
+
 include { STR_MODEL_DRAGEN } from './modules/execution_modules'
 include { HAPLOTYPECALLER_DRAGEN } from './modules/execution_modules'
+
 include { FILTRATION_DRAGEN } from './modules/execution_modules'
 include { FILTER_VCF as FILTER_VCF_GATK } from './modules/execution_modules'
 include { FILTER_VCF as FILTER_VCF_DEEPVARIANT } from './modules/execution_modules'
@@ -584,17 +593,14 @@ workflow GATKCALLING {
 			params.reference_gzi,
 			params.scratch 
 		)
-		MERGE_SPLIT_VCF (
+		MERGE_SPLIT_VCF_GATK (
 			HAPLOTYPECALLER.out.vcf.groupTuple(),
 			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			params.scratch 
+			params.scratch,
+			"gatk"
 		)
-		MERGE_SPLIT_VCF.out.vcf.view()
 		SELECT_SNV (
-			MERGE_SPLIT_VCF.out.vcf,
+			MERGE_SPLIT_VCF_GATK.out.vcf,
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
@@ -602,7 +608,7 @@ workflow GATKCALLING {
 			params.scratch )
 
 		SELECT_INDEL (
-			MERGE_SPLIT_VCF.out.vcf,
+			MERGE_SPLIT_VCF_GATK.out.vcf,
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
@@ -610,7 +616,7 @@ workflow GATKCALLING {
 			params.scratch )
 
 		SELECT_MIX (
-			MERGE_SPLIT_VCF.out.vcf,
+			MERGE_SPLIT_VCF_GATK.out.vcf,
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
@@ -673,17 +679,15 @@ workflow DEEPVARIANTCALLING {
 			params.capture,
 			params.scratch )
 		
-		MERGE_SPLIT_VCF (
+		MERGE_SPLIT_VCF_DEEPVARIANT (
 			DEEPVARIANT.out.vcf.groupTuple(),
 			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			params.scratch 
+			params.scratch,
+			"deepvariant"
 		)
 
 		FILTER_VCF_DEEPVARIANT (
-			MERGE_SPLIT_VCF.out.vcf,
+			MERGE_SPLIT_VCF_DEEPVARIANT.out.vcf,
 			params.assembly,
 			"deepvariant" )
 
@@ -697,23 +701,36 @@ workflow DEEPVARIANTCALLING {
 		finalvcf = FINAL_DEEPVARIANT.out.vcf
 }
 
-//nuevo workflow YO -> DRAGE(N)
+//nuevo workflow YO -> DRAG(E)N
 workflow DRAGENCALLING {
 	take:
 		bam
 	main:
+		SPLIT_BAM (
+			bam )
 
-		HAPLOTYPECALLER_DRAGEN(
-			bam.join(STR_MODEL_DRAGEN.out.strmodel),
-			params.bed,
-			params.intervals,
-			params.padding,
+		COMPLETE_DRAGEN(
+			SPLIT_BAM.out.transpose(),
 			params.reference_fasta,
 			params.reference_index,
 			params.reference_dict,
 			params.reference_gzi,
-			params.scratch )
+			params.reference_str,
+			params.scratch,			
+			params.bed,
+			params.intervals,
+			params.padding )
+		
+		MERGE_SPLIT_VCF_DRAGEN (
+			COMPLETE_DRAGEN.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"dragen"
+		)
 
+		FILTRATION_DRAGEN(
+			MERGE_SPLIT_VCF_DRAGEN.out.vcf,
+			params.scratch )
 
 
 		/*STR_MODEL_DRAGEN(

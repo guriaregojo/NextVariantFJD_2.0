@@ -1136,7 +1136,7 @@ process SPLIT_BAM {
 params.chroms = 'chr{{1..22},X,Y}'
 
 process SPLIT_BAM {
-	label "samtools"
+	label "bioinfotools"
 	tag { sample }
 	//publishDir "${params.output}/split_bams", mode: 'copy'
 
@@ -1227,31 +1227,29 @@ process MERGE_SPLIT_VCF {
 		//, stageAs: "${params.output}/out_parallel_vcfs"
 		//path my_vcfs, stageAs: 'parallel_vcfs/*'
 		path ref
-		path index
-		path dict
-		path reference_gzi
 		path scratch
+		val program
 		
 	output:
 		
 		//path("merged.vcf"), emit: vcf
 		tuple \
 			val(sample), \
-			path("${sample}.vcf"), \
-			path("${sample}.vcf.idx"), emit: vcf
+			path("${sample}.${program}.vcf"), \
+			path("${sample}.${program}.vcf.idx"), emit: vcf
 		//path("${my_vcfs.SimpleName}.vcf.idx"), emit: vcf_idx
 
 
 	script:
-		def scratch_field   = scratch ? "--TMP_DIR ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""	
-		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""
+		//def scratch_field   = scratch ? "--TMP_DIR ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""	
+		//def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""
 
 		"""
 		echo ${my_vcfs} | tr ' ' '\n' > vcfs.list
 		gatk MergeVcfs \
 		-R ${ref} \
 		-I vcfs.list \
-		-O "${sample}.vcf"
+		-O "${sample}.${program}.vcf"
 		"""
 }
 
@@ -1618,21 +1616,17 @@ process DEEPVARIANT {
 
 	script:
 		def capture_field   = capture != "G" ? "WES" : "WGS"
-		def intervals_field = intervals ? "--regions ${bed}" : ""
-		def scratch_field   = scratch ? "--intermediate_results_dir ${scratch}/${bam.baseName}_deepvariant" : ""	
-		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${bam.baseName}_deepvariant" : ""
+	
 
 		"""
-		${scratch_mkdir}
 		mkdir parallel_vcfs
-		run_deepvariant ${scratch_field} \
+		run_deepvariant \
 		--model_type=${capture_field} \
 		--ref=${ref} \
 		--reads=${bam} \
 		--output_vcf=${bam.baseName}.deepvariantLabeled.vcf.gz \
 		--output_gvcf=${bam.baseName}.deepvariantLabeled.gvcf.gz \
 		--num_shards=\$(nproc) \
-		${intervals_field} \
 		"""
 }
 
@@ -1665,28 +1659,36 @@ process DEEPVARIANT {
 
 
 ///// MI PROCESO MIX DRAGEN: (STR + haplotype caller)
-process MIX_DRAGEN {	
+process COMPLETE_DRAGEN {	
 	label "gatk"
 	errorStrategy 'ignore'
 	// publishDir "${params.output}/", mode: 'copy'
-
+	//INFO: bam.baseName (sample.chromosome) -> file name without its extension: 23-0136.chr5
+	//INFO: bam.SimpleName (cuando no hay cromosoma: sample ) -> file name without any extension: 23-0136
 	input:
-		tuple val(sample), path(bam), path(bai)
+		tuple val(sample), path(bam, stageAs: 'parallel_bams/*')
 		path ref
 		path index
 		path dict
 		path reference_gzi
 		path reference_str
 		path scratch
+		path bed
+		val intervals
+		val padding
 		
 	output:
 		tuple \
 			val(sample), \
-			path("${sample}_dragstr_model.txt"), emit: strmodel
+			path("${bam.baseName}.vcf.idx"), emit: vcf_idx
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.vcf"), emit: vcf
 
 	script:
-		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_mixmodeldragen" : ""	
-		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_mixmodeldragen" : ""
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${bam.BaseName}_mixmodeldragen" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${bam.BaseName}_mixmodeldragen" : ""
+		def intervals_field = intervals ? "-L ${bed} -ip ${padding}" : ""
 
 		"""
 		${scratch_mkdir}
@@ -1695,15 +1697,15 @@ process MIX_DRAGEN {
     	-R ${ref} \
     	-I ${bam} \
     	-str ${reference_str} \
-    	-O ${sample}_dragstr_model.txt
+    	-O ${bam.baseName}_dragstr_model.txt
 
 		gatk --java-options "-Xmx${params.mediummem}g" \
 		HaplotypeCaller ${scratch_field} \
 		--dragen-mode \
-		--dragstr-params-path ${str} \
+		--dragstr-params-path ${bam.baseName}_dragstr_model.txt \
 		-R ${ref} \
 		-I ${bam} \
-		-O ${sample}.vcf \
+		-O ${bam.baseName}.vcf \
 		--annotate-with-num-discovered-alleles true \
 		${intervals_field}
 

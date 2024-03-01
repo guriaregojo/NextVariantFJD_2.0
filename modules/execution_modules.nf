@@ -1164,7 +1164,7 @@ process SPLIT_BAM {
     """
 }
 
-process HAPLOTYPECALLER {	
+process PARALLEL_HAPLOTYPECALLER {	
 	label "gatk"
 	label "mediumcpu"
 	label "mediummem"
@@ -1213,6 +1213,49 @@ process HAPLOTYPECALLER {
 		${intervals_field}
 		"""
 }
+
+process HAPLOTYPECALLER {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
+	// publishDir "${params.output}/", mode: 'copy'
+
+	input:
+		tuple val(sample), path(bam), path(bai)
+		path bed
+		val intervals
+		val padding
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		path scratch
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.vcf"), \
+			path("${sample}.vcf.idx"), emit: vcf
+
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_HaplotypeCaller" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_HaplotypeCaller" : ""
+		def intervals_field = intervals ? "-L ${bed} -ip ${padding}" : ""
+
+		"""
+		${scratch_mkdir}
+
+		gatk --java-options "-Xmx${params.mediummem}g" \
+		HaplotypeCaller ${scratch_field} \
+		-R ${ref} \
+		-I ${bam} \
+		-O ${sample}.vcf \
+		--annotate-with-num-discovered-alleles true \
+		${intervals_field}
+		"""
+}
+
 
 
 process MERGE_SPLIT_VCF {	
@@ -1658,13 +1701,15 @@ process DEEPVARIANT {
 // }
 
 
-///// MI PROCESO MIX DRAGEN: (STR + haplotype caller)
-process COMPLETE_DRAGEN {	
+///// MI PROCESO: PARALLEL DRAGEN: (STR + haplotype caller) -> paraleliza y ademas junta los dos procesos de STR y haplotype caller
+process PARALLEL_HAPLOTYPECALLER_DRAGEN {	
 	label "gatk"
 	errorStrategy 'ignore'
 	// publishDir "${params.output}/", mode: 'copy'
 	//INFO: bam.baseName (sample.chromosome) -> file name without its extension: 23-0136.chr5
 	//INFO: bam.SimpleName (cuando no hay cromosoma: sample ) -> file name without any extension: 23-0136
+	// 
+
 	input:
 		tuple val(sample), path(bam, stageAs: 'parallel_bams/*')
 		path ref

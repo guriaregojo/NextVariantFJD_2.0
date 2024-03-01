@@ -45,6 +45,7 @@ include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_GATK} from './modules/execution_mod
 include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_DEEPVARIANT } from './modules/execution_modules'
 include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_DRAGEN } from './modules/execution_modules'
 
+include { PARALLEL_HAPLOTYPECALLER } from './modules/execution_modules'
 
 include { HAPLOTYPECALLER } from './modules/execution_modules'
 include { SELECT_SNV } from './modules/execution_modules'
@@ -55,8 +56,8 @@ include { FILTRATION_INDEL } from './modules/execution_modules'
 include { FILTRATION_MIX } from './modules/execution_modules'
 include { MERGE_VCF } from './modules/execution_modules'
 include { DEEPVARIANT } from './modules/execution_modules'
-// nuevo módulo GUR MIX_DRAGEN: tiene los dos pasos de DRAGEN en 1: STR_MODEL + HAPLOTYPE_CALLER DRAGEN 
-include { COMPLETE_DRAGEN } from './modules/execution_modules'
+// nuevo módulo PARALLEL_DRAGEN: PARALELIZA Y ADEMAS tiene los dos pasos de DRAGEN en 1: STR_MODEL + HAPLOTYPE_CALLER DRAGEN 
+include { PARALLEL_HAPLOTYPECALLER_DRAGEN } from './modules/execution_modules'
 
 include { STR_MODEL_DRAGEN } from './modules/execution_modules'
 include { HAPLOTYPECALLER_DRAGEN } from './modules/execution_modules'
@@ -569,12 +570,150 @@ workflow SNVCALLING {
 
 ////////////////////////////////////////////////////// START: nuevos workflows GUR 9 febrero 2023 ///////////////////////////////
 
+workflow PARALLEL_GATKCALLING  {
+	take:
+		bam
+	main:
 
-//nuevo workflow YO -> GAT(K)
+		PARALLEL_HAPLOTYPECALLER (
+			bam,
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch 
+		)
+		MERGE_SPLIT_VCF_GATK (
+			PARALLEL_HAPLOTYPECALLER.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"gatk"
+		)
+		
+	emit:
+		finalvcf = MERGE_SPLIT_VCF_GATK.out.vcf
+}
+
+workflow PROCESS_GATKCALLING {
+	take:
+		vcf //(y sample??) -> mirar donde take bam porque take bam de normal era una tupla que traia ya el sample
+	main:
+		SELECT_SNV (
+			vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_INDEL (
+			vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_MIX (
+			vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTRATION_SNV (
+			SELECT_SNV.out.vcf,
+			params.scratch )
+
+		FILTRATION_INDEL (
+			SELECT_INDEL.out.vcf,
+			params.scratch )
+
+		FILTRATION_MIX (
+			SELECT_MIX.out.vcf,
+			params.scratch )
+
+		MERGE_VCF (
+			FILTRATION_SNV.out.vcf.join(FILTRATION_INDEL.out.vcf).join(FILTRATION_MIX.out.vcf),
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTER_VCF_GATK (
+			MERGE_VCF.out.vcf,
+			params.assembly,
+			"gatk" )
+
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_GATK(
+			FILTER_VCF_GATK.out.vcf,
+			params.assembly,
+			"gatk" )
+
+	emit:
+		finalvcf = FINAL_GATK.out.vcf
+}
+
+workflow PARALLEL_DRAGENCALLING {
+	take:
+		bam
+	main:
+		PARALLEL_HAPLOTYPECALLER_DRAGEN(
+			bam,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.reference_str,
+			params.scratch,			
+			params.bed,
+			params.intervals,
+			params.padding )
+		
+		MERGE_SPLIT_VCF_DRAGEN (
+			PARALLEL_HAPLOTYPECALLER_DRAGEN.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"dragen"
+		)
+
+	emit:
+		finalvcf = MERGE_SPLIT_VCF_DRAGEN.out.vcf
+}
+
+workflow PROCESS_DRAGENCALLING {
+	take:
+		vcf
+	main:
+		FILTRATION_DRAGEN(
+			vcf,
+			params.scratch )
+
+		FILTER_VCF_DRAGEN(
+			FILTRATION_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_DRAGEN(
+			FILTER_VCF_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+			
+	emit:
+		finalvcf = FINAL_DRAGEN.out.vcf
+}
 
 
-//nuevo workflow YO -> GAT(K)
-workflow GATKCALLING {
+
+//nuevo workflow YO -> DEEPVARIAN(T)
+workflow DEEPVARIANTCALLING {
 	take:
 		bam
 	main:
@@ -582,7 +721,51 @@ workflow GATKCALLING {
 		SPLIT_BAM (
 			bam )
 
-		HAPLOTYPECALLER (
+		DEEPVARIANT (
+			SPLIT_BAM.out.transpose(),
+			params.bed,
+			params.intervals,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.capture,
+			params.scratch )
+		
+		MERGE_SPLIT_VCF_DEEPVARIANT (
+			DEEPVARIANT.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"deepvariant"
+		)
+
+		FILTER_VCF_DEEPVARIANT (
+			MERGE_SPLIT_VCF_DEEPVARIANT.out.vcf,
+			params.assembly,
+			"deepvariant" )
+
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_DEEPVARIANT(
+			FILTER_VCF_DEEPVARIANT.out.vcf,
+			params.assembly,
+			"deepvariant" )
+			
+	emit:
+		finalvcf = FINAL_DEEPVARIANT.out.vcf
+}
+
+
+
+// workflow GATK calling parallel TODO: ya es antiguo
+/*workflow GATKCALLING {
+	take:
+		bam
+	main:
+
+		SPLIT_BAM (
+			bam )
+
+		PARALLEL_HAPLOTYPECALLER (
 			SPLIT_BAM.out.transpose(),
 			params.bed,
 			params.intervals,
@@ -656,60 +839,17 @@ workflow GATKCALLING {
 
 	emit:
 		finalvcf = FINAL_GATK.out.vcf
-}
-
-
-//nuevo workflow YO -> DEEPVARIAN(T)
-workflow DEEPVARIANTCALLING {
-	take:
-		bam
-	main:
-
-		SPLIT_BAM (
-			bam )
-
-		DEEPVARIANT (
-			SPLIT_BAM.out.transpose(),
-			params.bed,
-			params.intervals,
-			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			params.capture,
-			params.scratch )
-		
-		MERGE_SPLIT_VCF_DEEPVARIANT (
-			DEEPVARIANT.out.vcf.groupTuple(),
-			params.reference_fasta,
-			params.scratch,
-			"deepvariant"
-		)
-
-		FILTER_VCF_DEEPVARIANT (
-			MERGE_SPLIT_VCF_DEEPVARIANT.out.vcf,
-			params.assembly,
-			"deepvariant" )
-
-		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
-		FINAL_DEEPVARIANT(
-			FILTER_VCF_DEEPVARIANT.out.vcf,
-			params.assembly,
-			"deepvariant" )
-			
-	emit:
-		finalvcf = FINAL_DEEPVARIANT.out.vcf
-}
+}*/
 
 //nuevo workflow YO -> DRAG(E)N
-workflow DRAGENCALLING {
+/* workflow DRAGENCALLING {
 	take:
 		bam
 	main:
 		SPLIT_BAM (
 			bam )
 
-		COMPLETE_DRAGEN(
+		PARALLEL_HAPLOTYPECALLER_DRAGEN(
 			SPLIT_BAM.out.transpose(),
 			params.reference_fasta,
 			params.reference_index,
@@ -722,7 +862,7 @@ workflow DRAGENCALLING {
 			params.padding )
 		
 		MERGE_SPLIT_VCF_DRAGEN (
-			COMPLETE_DRAGEN.out.vcf.groupTuple(),
+			PARALLEL_HAPLOTYPECALLER_DRAGEN.out.vcf.groupTuple(),
 			params.reference_fasta,
 			params.scratch,
 			"dragen"
@@ -731,31 +871,6 @@ workflow DRAGENCALLING {
 		FILTRATION_DRAGEN(
 			MERGE_SPLIT_VCF_DRAGEN.out.vcf,
 			params.scratch )
-
-
-		/*STR_MODEL_DRAGEN(
-			bam,
-			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			params.reference_str,
-			params.scratch )
-
-		HAPLOTYPECALLER_DRAGEN(
-			bam.join(STR_MODEL_DRAGEN.out.strmodel),
-			params.bed,
-			params.intervals,
-			params.padding,
-			params.reference_fasta,
-			params.reference_index,
-			params.reference_dict,
-			params.reference_gzi,
-			params.scratch )
-
-		FILTRATION_DRAGEN(
-			HAPLOTYPECALLER_DRAGEN.out.vcf,
-			params.scratch )*/
 
 		FILTER_VCF_DRAGEN(
 			FILTRATION_DRAGEN.out.vcf,
@@ -770,7 +885,7 @@ workflow DRAGENCALLING {
 			
 	emit:
 		finalvcf = FINAL_DRAGEN.out.vcf
-}
+} */
 
 ////////////////////////////////////////////////////// END: nuevos workflows GUR 9 febrero 2023 ///////////////////////////////
 
@@ -1441,15 +1556,31 @@ workflow {
 	}
 
  /////////////////////////////////////////////// GUR 9 FEBRERO: A PARTIR DE AQUI MIS LINEAS ///////////////////////////////////////////////
-		
+
 		// GATK calling
 	if ( params.analysis.toUpperCase().contains("K") ) {
-
-		// Sample selection using JOIN function
-		GATKCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
-		//yoli: GATKCALLING.out.split_files.view()
-		//yoli: GATKCALLING.out.vcfs.collect().view()
-	
+		if ( params.parallelize_calling == "yes" ) {
+			// Sample selection using JOIN function
+			SPLIT_BAM( 
+				bam.join(CHECK_PARAMS.out.samples2analyce) 
+			) //proceso
+			bam = SPLIT_BAM.out.transpose()
+			vcf = PARALLEL_GATKCALLING( bam ) //workflow
+		} else {
+			HAPLOTYPECALLER (
+				bam.join(CHECK_PARAMS.out.samples2analyce),
+				params.bed,
+				params.intervals,
+				params.padding,
+				params.reference_fasta,
+				params.reference_index,
+				params.reference_dict,
+				params.reference_gzi,
+				params.scratch )
+			vcf = HAPLOTYPECALLER.out.vcf
+		}
+			//vcf = PROCESS_GATKCALLING (vcf)
+			PROCESS_GATKCALLING (vcf) //workflow
 	}
 
 			// DEEPVARIANT calling

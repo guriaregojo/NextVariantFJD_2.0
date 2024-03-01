@@ -582,8 +582,10 @@ workflow GATKCALLING {
 		SPLIT_BAM (
 			bam )
 
+		//bam = SPLIT_BAM.out.transpose()
+
 		HAPLOTYPECALLER (
-			SPLIT_BAM.out.transpose(),
+			bam,
 			params.bed,
 			params.intervals,
 			params.padding,
@@ -1443,30 +1445,31 @@ workflow {
  /////////////////////////////////////////////// GUR 9 FEBRERO: A PARTIR DE AQUI MIS LINEAS ///////////////////////////////////////////////
 		
 		// GATK calling
-	if ( params.analysis.toUpperCase().contains("K") ) {
+	if ( params.analysis.toUpperCase().contains("S") ) {
+		if (params.vcalling_tools && params.vcalling_tools.toLowerCase().split(',').contains('gatk')) { //para indicar que se ejecuta solo gatk
 
-		// Sample selection using JOIN function
-		GATKCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
-		//yoli: GATKCALLING.out.split_files.view()
-		//yoli: GATKCALLING.out.vcfs.collect().view()
-	
-	}
+			// Sample selection using JOIN function
+			GATKCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
+			//yoli: GATKCALLING.out.split_files.view()
+			//yoli: GATKCALLING.out.vcfs.collect().view()
+		
+		}}
 
-			// DEEPVARIANT calling
-	if ( params.analysis.toUpperCase().contains("T") ) {
+				// DEEPVARIANT calling
+		if ( params.vcalling_tools && params.vcalling_tools.toLowerCase().split(',').contains('deepvariant') ) {
 
-		// Sample selection using JOIN function
-		DEEPVARIANTCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
-	
-	}
+			// Sample selection using JOIN function
+			DEEPVARIANTCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
+		
+		}
 
-				// DRAGEN calling
-	if ( params.analysis.toUpperCase().contains("E") ) {
+					// DRAGEN calling
+		if ( params.vcalling_tools && params.vcalling_tools.toLowerCase().split(',').contains('dragen') ) {
 
-		// Sample selection using JOIN function
-		DRAGENCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
-	
-	}
+			// Sample selection using JOIN function
+			DRAGENCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
+		
+		}
  /////////////////////////////////////////////// GUR 9 FEBRERO: FIN MIS LINEAS ///////////////////////////////////////////////
 
 
@@ -1495,6 +1498,7 @@ workflow {
 			vcf = SNVCALLING.out.finalvcf
 
 		} else if ( params.analysis.toUpperCase().contains("K") ) {
+			
 			
 			vcf = GATKCALLING.out.finalvcf
 

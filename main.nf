@@ -70,7 +70,9 @@ include { FILTER_VCF as FILTER_VCF_DRAGEN } from './modules/execution_modules'
 include { FINAL_VCF as FINAL_GATK } from './modules/execution_modules'
 include { FINAL_VCF as FINAL_DRAGEN } from './modules/execution_modules'
 include { FINAL_VCF as FINAL_DEEPVARIANT } from './modules/execution_modules'
-///
+/// GUR
+include { BAM2CRAM } from './modules/execution_modules' 
+include { CRAM2BAM } from './modules/execution_modules' 
 
 include { MERGE_VCF_CALLERS } from './modules/execution_modules'
 
@@ -1632,7 +1634,15 @@ if ( params.analysis.toUpperCase().contains("T") ) {
 }
 
 
-	
+if (params.keep_cram == "yes")  {
+			BAM2CRAM (
+				bam,
+				params.reference_fasta,
+				params.reference_index,
+				params.reference_dict,
+				params.reference_gzi,
+				params.scratch ) //proceso
+}
 
 
 

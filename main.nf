@@ -26,6 +26,7 @@ include { BS_CHECK } from './modules/execution_modules'
 include { LOCAL_CHECK } from './modules/execution_modules'
 include { BS_COPY } from './modules/execution_modules'
 include { FASTQ_CONCATENATION } from './modules/execution_modules'
+include { FASTP } from './modules/execution_modules'
 include { BWA } from './modules/execution_modules'
 include { FASTQTOSAM } from './modules/execution_modules'
 include { MERGEBAMALIGNMENT } from './modules/execution_modules'
@@ -34,6 +35,7 @@ include { SORTSAM } from './modules/execution_modules'
 include { SETTAGS } from './modules/execution_modules'
 include { BASERECALIBRATOR } from './modules/execution_modules'
 include { APPLYBQSR } from './modules/execution_modules'
+include { MERGEBAM } from './modules/execution_modules'
 include { LOCALBAM as LOCALBAM } from './modules/execution_modules'
 include { LOCALBAM as LOCALBAM_CNV } from './modules/execution_modules'
 
@@ -1161,12 +1163,40 @@ workflow {
 
 	// Mapping
 	if ( params.analysis.toUpperCase().contains("M") ) {
+
+		if ( params.parallel_mapping == true ){
+
+			FASTP (DOWNLOAD.out.fastq)
+
+			fastq_split=FASTP.out.reads
+                //.map { sample, file -> [ file.getName().split('.')[0], file ]
+                .map{ sample, file -> file }
+                .collect()
+                .flatten()
+                //.fromFilePairs()
+                //.map { file -> [ file.getParent(), file ]}
+                //.map { file -> [ fromFilePairs("${file.getParent()}/*R{1,2}.fastp.fastq.gz") ]}
+                .map { file -> [ file.getName().split('_')[0], file ] }
+                .groupTuple()
+                //.map{sample, file -> [sample.split('\\.')[1], file]} // con esto le puedo quitar el 0001 y solo dejarle el sample name.
+                .flatten()
+                .collate(3)
+                //.view(),
+
+
+			MAPPING( 
+			fastq_split )
 		
-		MAPPING( 
+			bam = MAPPING.out.bam
+
+		} else {
+
+			MAPPING( 
 			DOWNLOAD.out.fastq )
 		
 		bam = MAPPING.out.bam
-	
+		}
+
 	}  
 
 
@@ -1174,7 +1204,38 @@ workflow {
 		
 		if ( params.analysis.toUpperCase().contains("M") ) {
 					
+			if ( params.parallel_mapping == true ){
+
+			FASTP (DOWNLOAD.out.fastq)
+
+			fastq_split=FASTP.out.reads
+                //.map { sample, file -> [ file.getName().split('.')[0], file ]
+                .map{ sample, file -> file }
+                .collect()
+                .flatten()
+                //.fromFilePairs()
+                //.map { file -> [ file.getParent(), file ]}
+                //.map { file -> [ fromFilePairs("${file.getParent()}/*R{1,2}.fastp.fastq.gz") ]}
+                .map { file -> [ file.getName().split('_')[0], file ] }
+                .groupTuple()
+                //.map{sample, file -> [sample.split('\\.')[1], file]} // con esto le puedo quitar el 0001 y solo dejarle el sample name.
+                .flatten()
+                .collate(3)
+                //.view(),
+
+
+			MAPPING( 
+			fastq_split )
+		
 			bam = MAPPING.out.bam
+
+			} else {
+
+				MAPPING( 
+				DOWNLOAD.out.fastq )
+			
+			bam = MAPPING.out.bam
+			}
 	
 		} else {
 			
@@ -1252,7 +1313,7 @@ workflow {
 
 
 
-
+// yoli:EN LAS CNVS AÚN NO HEMOS AUTOMATIZADO EL PARALLEL MAPPING. 
 	// CNV calling
 	if ( params.analysis.toUpperCase().contains("C") ) {
 		if ( params.analysis.toUpperCase().contains("M") ) {

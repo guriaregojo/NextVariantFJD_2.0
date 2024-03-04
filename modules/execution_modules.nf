@@ -343,12 +343,40 @@ process FASTQ_CONCATENATION {
 
 		
 
+process FASTP {
+    label 'fastp'
+    label 'process_high'
 
+    input:
+    tuple val(sample), path(forward), path(reverse)
+        //val nsplit
 
+    output:
+                tuple val("${sample}"), \
+                         path('000*.*_R*.fastp.fastq.gz'), emit: reads
 
+    tuple val(sample), path('*.json')           , emit: json
+    tuple val(sample), path('*.html')           , emit: html
+    tuple val(sample), path('*.fail.fastq.gz')  , optional:true, emit: reads_fail
+    tuple val(sample), path('*.merged.fastq.gz'), optional:true, emit: reads_merged
 
+    script:
 
+                """
+                fastp \\
+                --in1 ${forward} \\
+                --in2 ${reverse} \\
+                --out1 ${sample}_R1.fastp.fastq.gz \\
+                --out2 ${sample}_R2.fastp.fastq.gz \\
+                --json ${sample}.fastp.json \\
+                --html ${sample}.fastp.html \\
+                --thread 16 \\
+                --detect_adapter_for_pe \\
+                --disable_adapter_trimming \\
+                --split 3
 
+                """
+}
 
 
 
@@ -701,6 +729,28 @@ process APPLYBQSR {
 }
 
 
+process MERGEBAM{
+        label "samtools"
+
+        input:
+                tuple val(sample), path(bam)
+                val assembly
+
+        output:
+                tuple \
+                        val(sample), \
+                        path("${sample}.${assembly}.bam"), emit: bam
+                //tuple \
+                //      val(sample), \
+                //      path("${sample}.${assembly}.bam.md5"), emit: md5
+
+        script:
+                // def scratch_field = scratch ? "--TMP-DIR ${scratch}/${sample}_SortSam" : ""
+                """
+                samtools merge -o ${sample}.${assembly}.bam ${bam}
+                """
+
+}
 
 
 

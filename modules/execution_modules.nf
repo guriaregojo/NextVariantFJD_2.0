@@ -739,7 +739,8 @@ process MERGEBAM{
         output:
                 tuple \
                         val(sample), \
-                        path("${sample}.${assembly}.bam"), emit: bam
+                        path("${sample}.${assembly}.bam"),
+						path("${sample}.${assembly}.bai"), emit: bam
                 //tuple \
                 //      val(sample), \
                 //      path("${sample}.${assembly}.bam.md5"), emit: md5
@@ -748,6 +749,7 @@ process MERGEBAM{
                 // def scratch_field = scratch ? "--TMP-DIR ${scratch}/${sample}_SortSam" : ""
                 """
                 samtools merge -o ${sample}.${assembly}.bam ${bam}
+				samtools index ${sample}.${assembly}.bam -o ${sample}.${assembly}.bai
                 """
 
 }
@@ -1152,18 +1154,89 @@ process RUN_QC_CAT {
 
 
 
+//params.chroms = 'chr{X,Y}'
+params.chroms = 'chr{{1..22},X,Y}'
+
+process SPLIT_BAM {
+	label "bioinfotools"
+	tag { sample }
+	//publishDir "${params.output}/split_bams", mode: 'copy'
+
+    input:
+    tuple val(sample), path(bam), path(bai)
+
+    output:
+		tuple \
+			val(sample), \
+			path("parallel_bams/*.bam"), emit: parallel_bams
+
+    //path("parallel_bams/*.bam"), emit: parallel_bams
+
+    script:
+    """
+	mkdir parallel_bams
+    for chrom in ${params.chroms}
+    do
+        samtools view \\
+            -o "parallel_bams/${bam.baseName}.\${chrom}.bam" \\
+            "${bam}" \\
+            "\${chrom}"
+		samtools index "parallel_bams/${bam.baseName}.\${chrom}.bam"
+    done
+    """
+}
 
 
 
+process PARALLEL_HAPLOTYPECALLER {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
+	//publishDir "${params.output}/", mode: 'copy'
+	//publishDir "${params.output}/out_parallel_vcfs/", mode: 'copy'
+	tag { bam }
 
+	input:
+		tuple val(sample), path(bam, stageAs: 'parallel_bams/*')
+		//tuple val(sample), path(bam, stageAs: 'parallel_bams/*')
+		//path bam, stageAs: 'parallel_bams/*'
+		path bed
+		val intervals
+		val padding
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		path scratch
+		
+	output:
+		//path("${bam.baseName}.vcf"), emit: vcf
+		//path("${bam.baseName}.vcf.idx"), emit: vcf_idx
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.vcf.idx"), emit: vcf_idx
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.vcf"), emit: vcf
 
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${bam.baseName}_HaplotypeCaller" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${bam.baseName}_HaplotypeCaller" : ""
+		def intervals_field = intervals ? "-L ${bed} -ip ${padding}" : ""
 
-
-
-
-
-
-
+		"""
+		${scratch_mkdir}
+		mkdir parallel_vcfs
+		gatk --java-options "-Xmx${params.mediummem}g" \
+		HaplotypeCaller ${scratch_field} \
+		-R ${ref} \
+		-I ${bam} \
+		-O "${bam.baseName}.vcf" \
+		--annotate-with-num-discovered-alleles true \
+		${intervals_field}
+		"""
+}
 
 
 

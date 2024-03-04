@@ -1187,7 +1187,26 @@ workflow {
 			MAPPING( 
 			fastq_split )
 		
-			bam = MAPPING.out.bam
+			//bam = MAPPING.out.bam
+
+			bamstomerge= MAPPING.out.bam
+                .map{sample, bam, bai -> [sample.split('\\.')[1], bam]} // con esto le puedo quitar el 0001 y solo dejarle el sample name.
+                .groupTuple()
+                //.view()
+
+                bamstomerge.view()
+
+
+                MERGEBAM(
+                        bamstomerge,
+                        params.assembly
+                        )
+
+                MERGEBAM.out.bam.view()
+
+				
+			bam = MERGEBAM.out.bam
+
 
 		} else {
 
@@ -1227,7 +1246,23 @@ workflow {
 			MAPPING( 
 			fastq_split )
 		
-			bam = MAPPING.out.bam
+			//bam = MAPPING.out.bam
+
+			bamstomerge= MAPPING.out.bam
+                .map{sample, bam, bai -> [sample.split('\\.')[1], bam]} // con esto le puedo quitar el 0001 y solo dejarle el sample name.
+                .groupTuple()
+                //.view()
+
+                bamstomerge.view()
+
+
+                MERGEBAM(
+                        bamstomerge,
+                        params.assembly
+                        )
+
+                MERGEBAM.out.bam.view()
+				bam = MERGEBAM.out.bam
 
 			} else {
 

@@ -1557,6 +1557,88 @@ workflow {
 
  /////////////////////////////////////////////// GUR 9 FEBRERO: A PARTIR DE AQUI MIS LINEAS ///////////////////////////////////////////////
 
+//if K & E & T y no parallelize -> llevarle a SNV calling
+
+if ( params.parallelize_calling == "yes" ) {
+	SPLIT_BAM( 
+				bam.join(CHECK_PARAMS.out.samples2analyce) 
+			) //proceso
+	bam = SPLIT_BAM.out.transpose()
+	if ( params.analysis.toUpperCase().contains("K") ) {
+		vcf = PARALLEL_GATKCALLING( bam ) //workflow
+		PROCESS_GATKCALLING (vcf) //workflow
+	} 
+	if ( params.analysis.toUpperCase().contains("E") ){ 
+		vcf = PARALLEL_DRAGENCALLING( bam ) //workflow
+		PROCESS_DRAGENCALLING (vcf) //workflow
+	}
+} else {
+	bam = bam.join(CHECK_PARAMS.out.samples2analyce)
+	if ( params.analysis.toUpperCase().contains("K") ) {
+		HAPLOTYPECALLER (
+				bam,
+				params.bed,
+				params.intervals,
+				params.padding,
+				params.reference_fasta,
+				params.reference_index,
+				params.reference_dict,
+				params.reference_gzi,
+				params.scratch ) //proceso
+		vcf = HAPLOTYPECALLER.out.vcf
+		PROCESS_GATKCALLING (vcf) //workflow
+	} 
+	if ( params.analysis.toUpperCase().contains("E") ){ 
+		STR_MODEL_DRAGEN(
+			bam,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.reference_str,
+			params.scratch ) //proceso
+
+		HAPLOTYPECALLER_DRAGEN(
+			bam.join(STR_MODEL_DRAGEN.out.strmodel),
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch ) //proceso
+		vcf = HAPLOTYPECALLER_DRAGEN.out.vcf
+		PROCESS_DRAGENCALLING (vcf) //workflow
+	}
+}
+if ( params.analysis.toUpperCase().contains("T") ) {
+		DEEPVARIANT (
+			bam.join(CHECK_PARAMS.out.samples2analyce),
+			params.bed,
+			params.intervals,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.capture,
+			params.scratch )
+
+		FILTER_VCF_DEEPVARIANT (
+			DEEPVARIANT.out.vcf,
+			params.assembly,
+			"deepvariant" )
+
+}
+
+
+	
+
+
+
+
+/*
+
 		// GATK calling
 	if ( params.analysis.toUpperCase().contains("K") ) {
 		if ( params.parallelize_calling == "yes" ) {
@@ -1583,6 +1665,9 @@ workflow {
 			PROCESS_GATKCALLING (vcf) //workflow
 	}
 
+	
+
+
 			// DEEPVARIANT calling
 	if ( params.analysis.toUpperCase().contains("T") ) {
 
@@ -1598,6 +1683,8 @@ workflow {
 		DRAGENCALLING( bam.join(CHECK_PARAMS.out.samples2analyce) )
 	
 	}
+
+*/
  /////////////////////////////////////////////// GUR 9 FEBRERO: FIN MIS LINEAS ///////////////////////////////////////////////
 
 

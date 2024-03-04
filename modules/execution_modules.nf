@@ -1284,7 +1284,43 @@ process HAPLOTYPECALLER {
 }
 
 
+process MERGE_SPLIT_VCF {	
+	label "gatk"
+	label "mediumcpu"
+	label "mediummem"
+	errorStrategy 'ignore'
+	//publishDir "${params.output}/parallel_vcfs", mode: 'copy'
+	input:
+		//path my_vcfs
+		tuple val(sample), path(my_vcfs)
+		//, stageAs: "${params.output}/out_parallel_vcfs"
+		//path my_vcfs, stageAs: 'parallel_vcfs/*'
+		path ref
+		path scratch
+		val program
+		
+	output:
+		
+		//path("merged.vcf"), emit: vcf
+		tuple \
+			val(sample), \
+			path("${sample}.${program}.vcf"), \
+			path("${sample}.${program}.vcf.idx"), emit: vcf
+		//path("${my_vcfs.SimpleName}.vcf.idx"), emit: vcf_idx
 
+
+	script:
+		//def scratch_field   = scratch ? "--TMP_DIR ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""	
+		//def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${my_vcfs.SimpleName}_mergesplitvcf" : ""
+
+		"""
+		echo ${my_vcfs} | tr ' ' '\n' > vcfs.list
+		gatk MergeVcfs \
+		-R ${ref} \
+		-I vcfs.list \
+		-O "${sample}.${program}.vcf"
+		"""
+}
 
 
 
@@ -1693,6 +1729,63 @@ process DEEPVARIANT {
 // }
 
 
+///// (graci) MI PROCESO: PARALLEL DRAGEN: (STR + haplotype caller) -> paraleliza y ademas junta los dos procesos de STR y haplotype caller
+process PARALLEL_HAPLOTYPECALLER_DRAGEN {	
+	label "gatk"
+	errorStrategy 'ignore'
+	// publishDir "${params.output}/", mode: 'copy'
+	//INFO: bam.baseName (sample.chromosome) -> file name without its extension: 23-0136.chr5
+	//INFO: bam.SimpleName (cuando no hay cromosoma: sample ) -> file name without any extension: 23-0136
+	// 
+
+	input:
+		tuple val(sample), path(bam, stageAs: 'parallel_bams/*')
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		path reference_str
+		path scratch
+		path bed
+		val intervals
+		val padding
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.vcf.idx"), emit: vcf_idx
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.vcf"), emit: vcf
+
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${bam.BaseName}_mixmodeldragen" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${bam.BaseName}_mixmodeldragen" : ""
+		def intervals_field = intervals ? "-L ${bed} -ip ${padding}" : ""
+
+		"""
+		${scratch_mkdir}
+
+		gatk CalibrateDragstrModel ${scratch_field} \
+    	-R ${ref} \
+    	-I ${bam} \
+    	-str ${reference_str} \
+    	-O ${bam.baseName}_dragstr_model.txt
+
+		gatk --java-options "-Xmx${params.mediummem}g" \
+		HaplotypeCaller ${scratch_field} \
+		--dragen-mode \
+		--dragstr-params-path ${bam.baseName}_dragstr_model.txt \
+		-R ${ref} \
+		-I ${bam} \
+		-O ${bam.baseName}.vcf \
+		--annotate-with-num-discovered-alleles true \
+		${intervals_field}
+
+		"""
+}
+
+
 
 
 
@@ -1863,6 +1956,131 @@ process FILTER_VCF {
 		"""
 }
 
+//// GUR: PROCESO NUEVO PARA OBTENER EL VCF FINAL EN LA CARPETA SNVS (EL FINAL VCF)
+process FINAL_VCF {	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(vcf_snv), path(idx_snv)
+		//tuple path(vcf_snv), path(idx_snv)
+		val assembly
+		val program
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.${program}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.${program}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.${program}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.${program}.final.vcf.gz
+		"""
+}
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////// GUR: PROCESOS NUEVOS FINALES PARA QUE PUEDA USARLO PARA ANOTAR -> se crea la carpeta snvs igual que en el MERGE_VCF_CALLERS Y el mismo .vcf de individual callers pasa a ser el archivo .final.vcf ///////
+
+/*
+process FINAL_GATK{	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(gatk_vcf), path(gatk_tbi)
+		val assembly
+		val program
+
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+		"""
+}
+
+
+process FINAL_DEEPVARIANT{	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(deepvariant_vcf), path(deepvariant_tbi)
+		val assembly
+		val program
+
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+		"""
+}
+
+
+process FINAL_DRAGEN{	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+
+	publishDir "${params.output}/snvs", mode: 'copy'
+	input:
+		tuple val(sample), path(dragen_vcf), path(dragen_tbi)
+		val assembly
+		val program
+
+	output:
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz"), emit: vcf
+
+		tuple \
+			val(sample), \
+			path("${sample}.${assembly}.final.vcf.gz.tbi"), emit: index
+
+	script:
+
+		"""
+		#convertir el vcf individual en el final y crearle su index (basicamente renombrarlo)
+	    cp ${sample}.${assembly}.${program}.vcf.gz ${sample}.${assembly}.final.vcf.gz
+		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
+		"""
+}
+*/
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 
@@ -1990,56 +2208,6 @@ process MERGE_VCF_CALLERS {
 		tabix -p vcf ${sample}.${assembly}.final.vcf.gz
 		"""
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

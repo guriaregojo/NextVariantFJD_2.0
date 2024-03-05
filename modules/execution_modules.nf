@@ -748,7 +748,9 @@ process MERGEBAM{
         script:
                 // def scratch_field = scratch ? "--TMP-DIR ${scratch}/${sample}_SortSam" : ""
                 """
-                samtools merge -o ${sample}.${assembly}.bam ${bam}
+                samtools merge -o ${sample}.${assembly}_tmp.bam ${bam}
+				samtools view -H ${sample}.${assembly}_tmp.bam  | sed "s/SM:[^\t]*/SM:${sample}/g" | samtools reheader - ${sample}.${assembly}_tmp.bam > ${sample}.${assembly}.bam
+				rm ${sample}.${assembly}_tmp.bam
 				samtools index ${sample}.${assembly}.bam -o ${sample}.${assembly}.bai
                 """
 

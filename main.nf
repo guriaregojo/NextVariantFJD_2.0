@@ -26,7 +26,7 @@ include { BS_CHECK } from './modules/execution_modules'
 include { LOCAL_CHECK } from './modules/execution_modules'
 include { BS_COPY } from './modules/execution_modules'
 include { FASTQ_CONCATENATION } from './modules/execution_modules'
-include { FASTP } from './modules/execution_modules'
+include { FASTP } from './modules/execution_modules' //YBQ: Fastp for splut fastqs
 include { BWA } from './modules/execution_modules'
 include { FASTQTOSAM } from './modules/execution_modules'
 include { MERGEBAMALIGNMENT } from './modules/execution_modules'
@@ -35,9 +35,19 @@ include { SORTSAM } from './modules/execution_modules'
 include { SETTAGS } from './modules/execution_modules'
 include { BASERECALIBRATOR } from './modules/execution_modules'
 include { APPLYBQSR } from './modules/execution_modules'
-include { MERGEBAM } from './modules/execution_modules'
+include { MERGEBAM } from './modules/execution_modules' //YBQ: Merge bams when mapping run in parallel
 include { LOCALBAM as LOCALBAM } from './modules/execution_modules'
 include { LOCALBAM as LOCALBAM_CNV } from './modules/execution_modules'
+
+//nuevo modulo GUR: SPLIT_BAM y MERGE_SPLIT_VCF
+include { SPLIT_BAM } from './modules/execution_modules'
+
+////GUR: nuevos modulos merge vcfs por cromosomas de cada programa
+include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_GATK} from './modules/execution_modules'
+include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_DEEPVARIANT } from './modules/execution_modules'
+include { MERGE_SPLIT_VCF as MERGE_SPLIT_VCF_DRAGEN } from './modules/execution_modules'
+
+include { PARALLEL_HAPLOTYPECALLER } from './modules/execution_modules'
 
 include { HAPLOTYPECALLER } from './modules/execution_modules'
 include { SELECT_SNV } from './modules/execution_modules'
@@ -48,12 +58,20 @@ include { FILTRATION_INDEL } from './modules/execution_modules'
 include { FILTRATION_MIX } from './modules/execution_modules'
 include { MERGE_VCF } from './modules/execution_modules'
 include { DEEPVARIANT } from './modules/execution_modules'
+// nuevo módulo PARALLEL_DRAGEN: PARALELIZA Y ADEMAS tiene los dos pasos de DRAGEN en 1: STR_MODEL + HAPLOTYPE_CALLER DRAGEN 
+include { PARALLEL_HAPLOTYPECALLER_DRAGEN } from './modules/execution_modules'
+
 include { STR_MODEL_DRAGEN } from './modules/execution_modules'
 include { HAPLOTYPECALLER_DRAGEN } from './modules/execution_modules'
 include { FILTRATION_DRAGEN } from './modules/execution_modules'
 include { FILTER_VCF as FILTER_VCF_GATK } from './modules/execution_modules'
 include { FILTER_VCF as FILTER_VCF_DEEPVARIANT } from './modules/execution_modules'
 include { FILTER_VCF as FILTER_VCF_DRAGEN } from './modules/execution_modules'
+//GUR: mis nuevos modulos
+include { FINAL_VCF as FINAL_GATK } from './modules/execution_modules'
+include { FINAL_VCF as FINAL_DRAGEN } from './modules/execution_modules'
+include { FINAL_VCF as FINAL_DEEPVARIANT } from './modules/execution_modules'
+///
 include { MERGE_VCF_CALLERS } from './modules/execution_modules'
 
 include { GVCF_HAPLOTYPECALLER } from './modules/execution_modules'
@@ -541,11 +559,326 @@ workflow SNVCALLING {
 }
 
 
+////////////////////////////////////////////////////// START: nuevos workflows GUR 9 febrero 2023 ///////////////////////////////
+
+workflow PARALLEL_GATKCALLING  {
+	take:
+		bam
+	main:
+
+		PARALLEL_HAPLOTYPECALLER (
+			bam,
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch 
+		)
+		MERGE_SPLIT_VCF_GATK (
+			PARALLEL_HAPLOTYPECALLER.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"gatk"
+		)
+		
+	emit:
+		finalvcf = MERGE_SPLIT_VCF_GATK.out.vcf
+}
+
+workflow PROCESS_GATKCALLING {
+	take:
+		vcf //(y sample??) -> mirar donde take bam porque take bam de normal era una tupla que traia ya el sample
+	main:
+		SELECT_SNV (
+			vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_INDEL (
+			vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_MIX (
+			vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTRATION_SNV (
+			SELECT_SNV.out.vcf,
+			params.scratch )
+
+		FILTRATION_INDEL (
+			SELECT_INDEL.out.vcf,
+			params.scratch )
+
+		FILTRATION_MIX (
+			SELECT_MIX.out.vcf,
+			params.scratch )
+
+		MERGE_VCF (
+			FILTRATION_SNV.out.vcf.join(FILTRATION_INDEL.out.vcf).join(FILTRATION_MIX.out.vcf),
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTER_VCF_GATK (
+			MERGE_VCF.out.vcf,
+			params.assembly,
+			"gatk" )
+
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_GATK(
+			FILTER_VCF_GATK.out.vcf,
+			params.assembly,
+			"gatk" )
+
+	emit:
+		finalvcf = FINAL_GATK.out.vcf
+}
+
+workflow PARALLEL_DRAGENCALLING {
+	take:
+		bam
+	main:
+		PARALLEL_HAPLOTYPECALLER_DRAGEN(
+			bam,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.reference_str,
+			params.scratch,			
+			params.bed,
+			params.intervals,
+			params.padding )
+		
+		MERGE_SPLIT_VCF_DRAGEN (
+			PARALLEL_HAPLOTYPECALLER_DRAGEN.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"dragen"
+		)
+
+	emit:
+		finalvcf = MERGE_SPLIT_VCF_DRAGEN.out.vcf
+}
+
+workflow PROCESS_DRAGENCALLING {
+	take:
+		vcf
+	main:
+		FILTRATION_DRAGEN(
+			vcf,
+			params.scratch )
+
+		FILTER_VCF_DRAGEN(
+			FILTRATION_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_DRAGEN(
+			FILTER_VCF_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+			
+	emit:
+		finalvcf = FINAL_DRAGEN.out.vcf
+}
 
 
 
+//nuevo workflow YO -> DEEPVARIAN(T)
+workflow DEEPVARIANTCALLING {
+	take:
+		bam
+	main:
+
+		SPLIT_BAM (
+			bam )
+
+		DEEPVARIANT (
+			SPLIT_BAM.out.transpose(),
+			params.bed,
+			params.intervals,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.capture,
+			params.scratch )
+		
+		MERGE_SPLIT_VCF_DEEPVARIANT (
+			DEEPVARIANT.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"deepvariant"
+		)
+
+		FILTER_VCF_DEEPVARIANT (
+			MERGE_SPLIT_VCF_DEEPVARIANT.out.vcf,
+			params.assembly,
+			"deepvariant" )
+
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_DEEPVARIANT(
+			FILTER_VCF_DEEPVARIANT.out.vcf,
+			params.assembly,
+			"deepvariant" )
+			
+	emit:
+		finalvcf = FINAL_DEEPVARIANT.out.vcf
+}
 
 
+
+// workflow GATK calling parallel TODO: ya es antiguo
+/*workflow GATKCALLING {
+	take:
+		bam
+	main:
+
+		SPLIT_BAM (
+			bam )
+
+		PARALLEL_HAPLOTYPECALLER (
+			SPLIT_BAM.out.transpose(),
+			params.bed,
+			params.intervals,
+			params.padding,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch 
+		)
+		MERGE_SPLIT_VCF_GATK (
+			HAPLOTYPECALLER.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"gatk"
+		)
+		SELECT_SNV (
+			MERGE_SPLIT_VCF_GATK.out.vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_INDEL (
+			MERGE_SPLIT_VCF_GATK.out.vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		SELECT_MIX (
+			MERGE_SPLIT_VCF_GATK.out.vcf,
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTRATION_SNV (
+			SELECT_SNV.out.vcf,
+			params.scratch )
+
+		FILTRATION_INDEL (
+			SELECT_INDEL.out.vcf,
+			params.scratch )
+
+		FILTRATION_MIX (
+			SELECT_MIX.out.vcf,
+			params.scratch )
+
+		MERGE_VCF (
+			FILTRATION_SNV.out.vcf.join(FILTRATION_INDEL.out.vcf).join(FILTRATION_MIX.out.vcf),
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.scratch )
+
+		FILTER_VCF_GATK (
+			MERGE_VCF.out.vcf,
+			params.assembly,
+			"gatk" )
+		
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_GATK(
+			FILTER_VCF_GATK.out.vcf,
+			params.assembly,
+			"gatk" )
+
+	emit:
+		finalvcf = FINAL_GATK.out.vcf
+}*/
+
+//nuevo workflow YO -> DRAG(E)N
+/* workflow DRAGENCALLING {
+	take:
+		bam
+	main:
+		SPLIT_BAM (
+			bam )
+
+		PARALLEL_HAPLOTYPECALLER_DRAGEN(
+			SPLIT_BAM.out.transpose(),
+			params.reference_fasta,
+			params.reference_index,
+			params.reference_dict,
+			params.reference_gzi,
+			params.reference_str,
+			params.scratch,			
+			params.bed,
+			params.intervals,
+			params.padding )
+		
+		MERGE_SPLIT_VCF_DRAGEN (
+			PARALLEL_HAPLOTYPECALLER_DRAGEN.out.vcf.groupTuple(),
+			params.reference_fasta,
+			params.scratch,
+			"dragen"
+		)
+
+		FILTRATION_DRAGEN(
+			MERGE_SPLIT_VCF_DRAGEN.out.vcf,
+			params.scratch )
+
+		FILTER_VCF_DRAGEN(
+			FILTRATION_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+
+		// nuevo proceso GUR: este proceso es el FINAL_VCF que lo llamamos con FINAL_GATK DRAGEN Y DEEP VARIANT INDEPENDIENTE///
+		FINAL_DRAGEN(
+			FILTER_VCF_DRAGEN.out.vcf,
+			params.assembly,
+			"dragen" )
+			
+	emit:
+		finalvcf = FINAL_DRAGEN.out.vcf
+} */
+
+////////////////////////////////////////////////////// END: nuevos workflows GUR 9 febrero 2023 ///////////////////////////////
 
 
 workflow ANNOTATION {
@@ -1138,9 +1471,7 @@ workflow CNVCALLING_WES {
 
 
 
-
-
-
+// Aquí empezamos a encadenar los workflows: 
 
 
 
@@ -1162,13 +1493,14 @@ workflow {
 
 
 	// Mapping
+	//YBQ: añadimos la opción de paralelizar el mapping 
 	if ( params.analysis.toUpperCase().contains("M") ) {
 
 		if ( params.parallel_mapping == true ){
 
-			FASTP (DOWNLOAD.out.fastq)
+			FASTP (DOWNLOAD.out.fastq) //process
 
-			fastq_split=FASTP.out.reads
+			fastq_split=FASTP.out.reads //adaptamos el canal 
                 //.map { sample, file -> [ file.getName().split('.')[0], file ]
                 .map{ sample, file -> file }
                 .collect()
@@ -1225,55 +1557,16 @@ workflow {
 					
 			if ( params.parallel_mapping == true ){
 
-			FASTP (DOWNLOAD.out.fastq)
-
-			fastq_split=FASTP.out.reads
-                //.map { sample, file -> [ file.getName().split('.')[0], file ]
-                .map{ sample, file -> file }
-                .collect()
-                .flatten()
-                //.fromFilePairs()
-                //.map { file -> [ file.getParent(), file ]}
-                //.map { file -> [ fromFilePairs("${file.getParent()}/*R{1,2}.fastp.fastq.gz") ]}
-                .map { file -> [ file.getName().split('_')[0], file ] }
-                .groupTuple()
-                //.map{sample, file -> [sample.split('\\.')[1], file]} // con esto le puedo quitar el 0001 y solo dejarle el sample name.
-                .flatten()
-                .collate(3)
-                //.view(),
-
-
-			MAPPING( 
-			fastq_split )
-		
-			//bam = MAPPING.out.bam
-
-			bamstomerge= MAPPING.out.bam
-                .map{sample, bam, bai -> [sample.split('\\.')[1], bam]} // con esto le puedo quitar el 0001 y solo dejarle el sample name.
-                .groupTuple()
-                //.view()
-
-                bamstomerge.view()
-
-
-                MERGEBAM(
-                        bamstomerge,
-                        params.assembly
-                        )
-
-                MERGEBAM.out.bam.view()
-				bam = MERGEBAM.out.bam
+				bam =  MERGEBAM.out.bam // si está en paralelo, asignamos a BAM la salida de MERGEBAM
 
 			} else {
 
-				MAPPING( 
-				DOWNLOAD.out.fastq )
-			
-			bam = MAPPING.out.bam
+				bam = MAPPING.out.bam
+
 			}
 	
 		} else {
-			
+			 // si no hay "M", comprobamos que haya un "BAM" local en la carpeta input. 
 			LOCALBAM (
 				params.input,
 				CHECK_PARAMS.out.samples2analyce )
@@ -1297,13 +1590,101 @@ workflow {
 
 
 
-
-
 	// SNV calling
-	if ( params.analysis.toUpperCase().contains("S") ) {
+	if ( params.analysis.toUpperCase().contains("S") ) { 
 
 		// Sample selection using JOIN function
-		SNVCALLING ( bam.join(CHECK_PARAMS.out.samples2analyce) )
+		if (params.vc_tools.toLowerCase().split(',').contains('all')){
+
+			SNVCALLING ( bam.join(CHECK_PARAMS.out.samples2analyce) )
+			// ahora mismo, no se puede hacer en paralelo todas las herramientas, así que si 
+			//vc_tools="all", ejecutamos el workflow normal (SNVCALLING)
+			// A añadir: si split=yes, hacer en paralelo gatk y dragen y normal deepvariant y merge todo. 
+
+		} else {
+
+			if ( params.parallel_calling == true ) {
+				SPLIT_BAM( 
+				bam.join(CHECK_PARAMS.out.samples2analyce) 
+				) //proceso
+				bam = SPLIT_BAM.out.transpose()
+				if ( params.vc_tools.toLowerCase().split(',').contains('gatk') ) {
+					vcf = PARALLEL_GATKCALLING( bam ) //workflow
+					vcf_gatk=PROCESS_GATKCALLING (vcf) //workflow
+				} 
+				
+				if ( params.vc_tools.toLowerCase().split(',').contains('dragen') ){ 
+					vcf = PARALLEL_DRAGENCALLING( bam ) //workflow
+					vcf_dragen=PROCESS_DRAGENCALLING (vcf) //workflow
+				} // YBQ: ¿FALTA UNIR AMBOS VCF FINALES EN EL CASO DE QUE SE EJECUTEN LOS DOS?
+				//
+
+			} else {
+					bam = bam.join(CHECK_PARAMS.out.samples2analyce)
+					// si no hacemos el parallel vcf calling: 
+
+					if ( params.vc_tools.toLowerCase().split(',').contains('gatk') ) {
+						HAPLOTYPECALLER (
+								bam,
+								params.bed,
+								params.intervals,
+								params.padding,
+								params.reference_fasta,
+								params.reference_index,
+								params.reference_dict,
+								params.reference_gzi,
+								params.scratch ) //proceso
+						vcf = HAPLOTYPECALLER.out.vcf
+						vcf_gatk=PROCESS_GATKCALLING (vcf) //workflow
+					}
+					if ( params.vc_tools.toLowerCase().split(',').contains('dragen') ){ 
+						STR_MODEL_DRAGEN(
+							bam,
+							params.reference_fasta,
+							params.reference_index,
+							params.reference_dict,
+							params.reference_gzi,
+							params.reference_str,
+							params.scratch ) //proceso
+
+						HAPLOTYPECALLER_DRAGEN(
+							bam.join(STR_MODEL_DRAGEN.out.strmodel),
+							params.bed,
+							params.intervals,
+							params.padding,
+							params.reference_fasta,
+							params.reference_index,
+							params.reference_dict,
+							params.reference_gzi,
+							params.scratch ) //proceso
+						vcf = HAPLOTYPECALLER_DRAGEN.out.vcf
+						vcf_dragen=PROCESS_DRAGENCALLING (vcf) //workflow
+					}
+					if ( params.vc_tools.toLowerCase().split(',').contains('deepvariant') ) {
+						DEEPVARIANT (
+							bam.join(CHECK_PARAMS.out.samples2analyce),
+							params.bed,
+							params.intervals,
+							params.reference_fasta,
+							params.reference_index,
+							params.reference_dict,
+							params.reference_gzi,
+							params.capture,
+							params.scratch )
+
+						vcf_deepvariant=FILTER_VCF_DEEPVARIANT (
+							DEEPVARIANT.out.vcf,
+							params.assembly,
+							"deepvariant" )
+
+					}
+ 
+
+
+			}
+		}
+
+		
 	
 	}
 
@@ -1323,13 +1704,28 @@ workflow {
 
 
 
+	//////////////////// GUR: en SNV annotation tengo que editar esto para incluir K,E,T (añado else if, si no lo que ocurre es que chace dos checks_ LOCALBAM para el calling y LOCAL VCF para la anotacion y ambos checks los hace a la vez cuando todavia no ha corrido el calling entonces no hay bam, entonces con esto evitamos que compruebe el LOCALVCF cuando corre calling y anotacion)
 	// SNV annotation
 	if ( params.analysis.toUpperCase().contains("A") ) {
-		if ( params.analysis.toUpperCase().contains("S") ) {
+		if ( params.analysis.toUpperCase().contains("S") ){
+			if ( params.vc_tools.toLowerCase().split(',').contains('all') ) {
 			
-			vcf = SNVCALLING.out.finalvcf
+			ANNOTATION ( SNVCALLING.out.finalvcf )
 
-		} else {
+		} else if (params.vc_tools.toLowerCase().split(',').contains('gatk')) {
+			
+			ANNOTATION ( vcf_gatk )
+
+		} else if ( params.vc_tools.toLowerCase().split(',').contains('dragen') ) {
+			
+			ANNOTATION ( vcf_dragen )
+
+		} else if ( params.vc_tools.toLowerCase().split(',').contains('deepvariant') ) {
+			
+			ANNOTATION ( vcf_deepvariant )
+
+		}
+		} else { //si no viene del variant calling
 			
 			LOCALVCF (
 				params.input,
@@ -1337,12 +1733,12 @@ workflow {
 				CHECK_PARAMS.out.samples2analyce )
 
 			vcf = LOCALVCF.out.vcf
+			ANNOTATION ( vcf )
 		}
 
 
-		ANNOTATION ( vcf )
+		//ANNOTATION ( vcf )
 	}
-
 
 
 

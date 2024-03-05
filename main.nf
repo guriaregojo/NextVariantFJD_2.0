@@ -1635,13 +1635,20 @@ if ( params.analysis.toUpperCase().contains("T") ) {
 
 
 if (params.keep_cram == "yes")  {
-			BAM2CRAM (
-				bam,
-				params.reference_fasta,
-				params.reference_index,
-				params.reference_dict,
-				params.reference_gzi,
-				params.scratch ) //proceso
+	if (params.mosdepth_bed == "yes") {
+		MOSDEPTH_COV(
+			bam,
+			params.bed,
+			params.padding )
+	
+	}
+	BAM2CRAM (
+		bam,
+		params.reference_fasta,
+		params.reference_index,
+		params.reference_dict,
+		params.reference_gzi,
+		params.scratch ) //proceso
 }
 
 

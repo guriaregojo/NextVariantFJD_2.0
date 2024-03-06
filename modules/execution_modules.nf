@@ -730,7 +730,7 @@ process APPLYBQSR {
 
 
 process MERGEBAM{
-        label "samtools"
+        label "bioinfotools"
 
         input:
                 tuple val(sample), path(bam)
@@ -748,10 +748,10 @@ process MERGEBAM{
         script:
                 // def scratch_field = scratch ? "--TMP-DIR ${scratch}/${sample}_SortSam" : ""
                 """
-                samtools merge -o ${sample}.${assembly}_tmp.bam ${bam}
+                samtools merge ${sample}.${assembly}_tmp.bam ${bam}
 				samtools view -H ${sample}.${assembly}_tmp.bam  | sed "s/SM:[^\t]*/SM:${sample}/g" | samtools reheader - ${sample}.${assembly}_tmp.bam > ${sample}.${assembly}.bam
 				rm ${sample}.${assembly}_tmp.bam
-				samtools index ${sample}.${assembly}.bam -o ${sample}.${assembly}.bai
+				samtools index ${sample}.${assembly}.bam ${sample}.${assembly}.bai
                 """
 
 }

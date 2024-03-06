@@ -71,6 +71,11 @@ include { FILTER_VCF as FILTER_VCF_DRAGEN } from './modules/execution_modules'
 include { FINAL_VCF as FINAL_GATK } from './modules/execution_modules'
 include { FINAL_VCF as FINAL_DRAGEN } from './modules/execution_modules'
 include { FINAL_VCF as FINAL_DEEPVARIANT } from './modules/execution_modules'
+/// GUR
+include { BAM2CRAM } from './modules/execution_modules' 
+include { CRAM2BAM } from './modules/execution_modules' 
+
+
 ///
 include { MERGE_VCF_CALLERS } from './modules/execution_modules'
 
@@ -1588,6 +1593,29 @@ workflow {
 	
 	}
 
+
+/// mosdepth_bed -> si queremos el mosdepth bed que se genera para crear la base de datos
+if ( params.mosdepth_bed == true ) {
+
+	MOSDEPTH_COV(
+			bam,
+			params.bed,
+			params.padding )
+	
+}
+
+///keep el cram en una carpeta nueva llamada /cram
+if ( params.keep_cram == true ) {
+
+	BAM2CRAM (
+		bam,
+		params.reference_fasta,
+		params.reference_index,
+		params.reference_dict,
+		params.reference_gzi,
+		params.scratch ) //proceso
+	
+}
 
 
 	// SNV calling

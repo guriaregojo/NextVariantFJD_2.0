@@ -1988,10 +1988,75 @@ process FINAL_VCF {
 		"""
 }
 
+/////////// PROCESO CONVERSION BAM/CRAM
+process BAM2CRAM {	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+	publishDir "${params.output}/cram", mode: 'copy'
 
+	input:
+		tuple val(sample), path(bam), path(bai)
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		path scratch
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.cram.crai"), emit: cram_idx
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.cram"), emit: cram
 
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_bam2cram" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_bam2cram" : ""
 
+		"""
+		${scratch_mkdir}
+		samtools view -C -T ${ref} -o ${bam.baseName}.cram ${bam} 
+		samtools index ${bam.baseName}.cram ${bam.baseName}.cram.crai
+		if [ -d ${params.output}/bams/ ]; then
+			rm -r ${params.output}/bams/
+		fi
+		
+		"""
+}
 
+process CRAM2BAM {	
+	label "bioinfotools"
+	errorStrategy 'ignore'
+	// publishDir "${params.output}/", mode: 'copy'
+
+	input:
+		tuple val(sample), path(cram), path(crai)
+		path ref
+		path index
+		path dict
+		path reference_gzi
+		path scratch
+		
+	output:
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.bam.bai"), emit: bam_idx
+		tuple \
+			val(sample), \
+			path("${bam.baseName}.bam"), emit: bam
+
+	script:
+		def scratch_field   = scratch ? "--tmp-dir ${scratch}/${sample}_cram2bam" : ""	
+		def scratch_mkdir   = scratch ? "mkdir -p ${scratch}/${sample}_cram2bam" : ""
+
+		"""
+		${scratch_mkdir}
+		samtools view -b -T ${ref} -o ${cram.baseName}.bam ${cram} 
+		samtools index ${cram.baseName}.bam ${cram.baseName}.bam.bai
+
+		"""
+}
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //////// GUR: PROCESOS NUEVOS FINALES PARA QUE PUEDA USARLO PARA ANOTAR -> se crea la carpeta snvs igual que en el MERGE_VCF_CALLERS Y el mismo .vcf de individual callers pasa a ser el archivo .final.vcf ///////
 
